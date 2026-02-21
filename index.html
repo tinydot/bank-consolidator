@@ -1526,9 +1526,15 @@
 
         function handleFiles(files) {
             uploadedFiles = Array.from(files).filter(f => f.name.endsWith('.csv'));
-            
+
             if (uploadedFiles.length === 0) {
                 showMessage('error', 'Please select valid CSV files');
+                return;
+            }
+
+            const oversized = uploadedFiles.filter(f => f.size > CONFIG.MAX_FILE_SIZE);
+            if (oversized.length > 0) {
+                showMessage('error', `File too large: ${escapeHtml(oversized[0].name)} (max ${CONFIG.MAX_FILE_SIZE / 1024 / 1024}MB)`);
                 return;
             }
 
@@ -1542,7 +1548,7 @@
                     <ul style="list-style: none; padding: 0;">
                         ${uploadedFiles.map(f => `
                             <li style="padding: 8px; background: white; margin-bottom: 8px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
-                                <span style="font-family: monospace;">${f.name}</span>
+                                <span style="font-family: monospace;">${escapeHtml(f.name)}</span>
                                 <span style="color: #7f8c8d; font-size: 12px;">${(f.size / 1024).toFixed(1)} KB</span>
                             </li>
                         `).join('')}
@@ -2709,6 +2715,7 @@
                 GROUP BY month
             `;
             
+            let monthlyParams = [];
             if (includeManual && startDate) {
                 monthlyQuery = `
                     SELECT
@@ -2719,15 +2726,16 @@
                     FROM (
                         SELECT date, amount FROM transactions WHERE ignored = 0
                         UNION ALL
-                        SELECT date, amount FROM manual_transactions WHERE date >= '${startDate}'
+                        SELECT date, amount FROM manual_transactions WHERE date >= ?
                     )
                     WHERE date >= date('now', '-6 months', 'start of month')
                     GROUP BY month
                 `;
+                monthlyParams = [startDate];
             }
-            
+
             monthlyQuery += ' ORDER BY month DESC';
-            const monthlyResult = db.exec(monthlyQuery);
+            const monthlyResult = db.exec(monthlyQuery, monthlyParams);
 
             updateMonthlyTable(monthlyResult);
 
@@ -2745,6 +2753,7 @@
                 ORDER BY month ASC, total DESC
             `;
             
+            let categoryParams = [];
             if (includeManual && startDate) {
                 categoryQuery = `
                     SELECT
@@ -2767,15 +2776,16 @@
                             mt.category_id
                         FROM manual_transactions mt
                         LEFT JOIN categories c ON mt.category_id = c.id
-                        WHERE mt.amount < 0 AND mt.date >= '${startDate}'
+                        WHERE mt.amount < 0 AND mt.date >= ?
                           AND mt.date >= date('now', '-6 months', 'start of month')
                     )
                     GROUP BY month, category_id
                     ORDER BY month ASC, total DESC
                 `;
+                categoryParams = [startDate];
             }
-            
-            const categoryResult = db.exec(categoryQuery);
+
+            const categoryResult = db.exec(categoryQuery, categoryParams);
 
             updateCategoryChart(categoryResult);
 
@@ -3013,11 +3023,11 @@
                         FROM manual_transactions mt
                         LEFT JOIN categories c ON mt.category_id = c.id
                         WHERE mt.amount < 0 AND strftime('%Y-%m', mt.date) = ?
-                          AND mt.date >= '${startDate}'
+                          AND mt.date >= ?
                     )
                     ORDER BY category_name, date DESC
                 `;
-                params.push(tagViewMonth); // Second parameter for manual_transactions query
+                params.push(tagViewMonth, startDate); // Second and third parameters for manual_transactions query
             }
 
             const result = db.exec(query, params);
@@ -3065,11 +3075,11 @@
                     SELECT SUM(amount) FROM (
                         SELECT amount FROM transactions WHERE amount > 0 AND ignored = 0 AND strftime('%Y-%m', date) = ?
                         UNION ALL
-                        SELECT amount FROM manual_transactions WHERE amount > 0 AND strftime('%Y-%m', date) = ? AND date >= '${startDate}'
+                        SELECT amount FROM manual_transactions WHERE amount > 0 AND strftime('%Y-%m', date) = ? AND date >= ?
                     )
                 `;
             }
-            const incomeParams = includeManual && startDate ? [tagViewMonth, tagViewMonth] : [tagViewMonth];
+            const incomeParams = includeManual && startDate ? [tagViewMonth, tagViewMonth, startDate] : [tagViewMonth];
             const incomeResult = db.exec(incomeQuery, incomeParams);
             if (incomeResult.length && incomeResult[0].values[0][0]) {
                 totalIncome = incomeResult[0].values[0][0];
@@ -3133,10 +3143,12 @@
                 const labelGroups = {}; // labelGroups[label] = { count, total, descriptions[] }
                 
                 cat.transactions.forEach(tx => {
-                    // Check if description matches any rule keyword
+                    // Check if description matches any rule keyword (word-boundary, same as applyTransactionRules)
                     let matchedKeyword = null;
                     for (const keyword of ruleKeywords) {
-                        if (tx.desc.toLowerCase().includes(keyword)) {
+                        const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        const pattern = new RegExp(`(^|[^\\w])${escapedKeyword}([^\\w]|$)`, 'i');
+                        if (pattern.test(tx.desc)) {
                             matchedKeyword = keyword;
                             break;
                         }
@@ -3578,7 +3590,7 @@
 
             let csv = columns.join(',') + '\n';
             rows.forEach(row => {
-                csv += row.map(cell => `"${cell}"`).join(',') + '\n';
+                csv += row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',') + '\n';
             });
 
             downloadFile(csv, 'transactions.csv', 'text/csv');
@@ -4753,7 +4765,11 @@ ${varHTML}${grandRow}${fundCard}`;
         function showMessage(type, text) {
             const container = document.getElementById('import-message');
             const className = type === 'error' ? 'error-message' : 'success-message';
-            container.innerHTML = `<div class="${className}">${text}</div>`;
+            const div = document.createElement('div');
+            div.className = className;
+            div.textContent = text;
+            container.innerHTML = '';
+            container.appendChild(div);
             setTimeout(() => container.innerHTML = '', 5000);
         }
 

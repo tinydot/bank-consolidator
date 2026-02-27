@@ -270,8 +270,36 @@ async function init() {
 async function initSQLite() {
     SQL = await initSqlJs();
     const savedDb = await loadDatabaseFromIndexedDB();
-    db = savedDb ? new SQL.Database(new Uint8Array(savedDb)) : new SQL.Database();
-    createTables();
+
+    // Check for a synchronous backup written to localStorage during the last
+    // page unload. This backup captures any changes that hadn't been flushed
+    // to IndexedDB yet (e.g. the user refreshed within the 1s debounce window).
+    let localBackup = null;
+    try {
+        const raw = localStorage.getItem('bankConsolidator_backup');
+        if (raw) {
+            const binaryString = atob(raw);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            localBackup = bytes;
+        }
+    } catch (e) {
+        // Corrupt or missing backup — ignore
+    }
+
+    if (localBackup) {
+        // The localStorage backup is always at least as recent as IndexedDB,
+        // so prefer it. Clear it immediately and flush to IndexedDB.
+        localStorage.removeItem('bankConsolidator_backup');
+        db = new SQL.Database(localBackup);
+        createTables();
+        await saveDatabaseToIndexedDB();
+    } else {
+        db = savedDb ? new SQL.Database(new Uint8Array(savedDb)) : new SQL.Database();
+        createTables();
+    }
 }
 
 function createTables() {
@@ -3038,7 +3066,7 @@ let _isDirty = false;
 function markDirty() {
     _isDirty = true;
     if (_dirtyTimer) clearTimeout(_dirtyTimer);
-    _dirtyTimer = setTimeout(flushSave, 30000); // 30s debounce
+    _dirtyTimer = setTimeout(flushSave, 1000); // 1s debounce
 }
 
 async function flushSave() {
@@ -3053,8 +3081,21 @@ document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushSave();
 });
 window.addEventListener('beforeunload', () => {
-    // Synchronous flush not possible for IndexedDB, but clear the flag
-    // so the async path doesn't double-save on next load
+    // IndexedDB writes are async and won't complete before page unload.
+    // Synchronously back up the current in-memory database to localStorage
+    // so the next page load can restore any unsaved changes.
+    try {
+        if (db) {
+            const data = db.export();
+            let binary = '';
+            for (let i = 0; i < data.length; i++) {
+                binary += String.fromCharCode(data[i]);
+            }
+            localStorage.setItem('bankConsolidator_backup', btoa(binary));
+        }
+    } catch (e) {
+        // localStorage may be full or unavailable — fail silently
+    }
     flushSave();
 });
 

@@ -1537,7 +1537,7 @@ async function loadTransactions(page = 0) {
     const countQuery = query.replace(/SELECT[\s\S]*?FROM/, 'SELECT COUNT(*) FROM');
     const totalCount = dbHelpers.queryValue(countQuery, params) || 0;
 
-    query += ` ORDER BY t.date DESC LIMIT ${CONFIG.PAGE_SIZE} OFFSET ${page * CONFIG.PAGE_SIZE}`;
+    query += ` ORDER BY t.date DESC, ABS(t.amount) DESC, t.description ASC LIMIT ${CONFIG.PAGE_SIZE} OFFSET ${page * CONFIG.PAGE_SIZE}`;
 
     const result = db.exec(query, params);
     displayTransactions(result, totalCount, page);
@@ -3382,8 +3382,9 @@ async function addCategory() {
 }
 
 async function deleteCategory(categoryId, categoryName) {
-    if (!confirm(`Delete category "${categoryName}"? This will also delete all its subcategories. Transactions using this category will keep it.`)) return;
+    if (!confirm(`Delete category "${categoryName}"? This will also delete all its subcategories. Transactions using this category will become uncategorized.`)) return;
 
+    db.run('UPDATE transactions SET category_id = NULL, subcategory_id = NULL WHERE category_id = ?', [categoryId]);
     db.run('DELETE FROM subcategories WHERE category_id = ?', [categoryId]);
     db.run('DELETE FROM categories WHERE id = ?', [categoryId]);
     markDirty();
@@ -3460,8 +3461,9 @@ async function addSubcategory(categoryId) {
 }
 
 async function deleteSubcategory(subcategoryId, subcategoryName, categoryName) {
-    if (!confirm(`Delete subcategory "${subcategoryName}" from ${categoryName}?`)) return;
+    if (!confirm(`Delete subcategory "${subcategoryName}" from ${categoryName}? Transactions using this subcategory will become uncategorized.`)) return;
 
+    db.run('UPDATE transactions SET category_id = NULL, subcategory_id = NULL WHERE subcategory_id = ?', [subcategoryId]);
     db.run('DELETE FROM subcategories WHERE id = ?', [subcategoryId]);
     markDirty();
     await loadCategories();

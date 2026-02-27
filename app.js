@@ -3382,8 +3382,9 @@ async function addCategory() {
 }
 
 async function deleteCategory(categoryId, categoryName) {
-    if (!confirm(`Delete category "${categoryName}"? This will also delete all its subcategories. Transactions using this category will keep it.`)) return;
+    if (!confirm(`Delete category "${categoryName}"? This will also delete all its subcategories. Transactions using this category will become uncategorized.`)) return;
 
+    db.run('UPDATE transactions SET category_id = NULL, subcategory_id = NULL WHERE category_id = ?', [categoryId]);
     db.run('DELETE FROM subcategories WHERE category_id = ?', [categoryId]);
     db.run('DELETE FROM categories WHERE id = ?', [categoryId]);
     markDirty();
@@ -3460,8 +3461,9 @@ async function addSubcategory(categoryId) {
 }
 
 async function deleteSubcategory(subcategoryId, subcategoryName, categoryName) {
-    if (!confirm(`Delete subcategory "${subcategoryName}" from ${categoryName}?`)) return;
+    if (!confirm(`Delete subcategory "${subcategoryName}" from ${categoryName}? Transactions using this subcategory will become uncategorized.`)) return;
 
+    db.run('UPDATE transactions SET category_id = NULL, subcategory_id = NULL WHERE subcategory_id = ?', [subcategoryId]);
     db.run('DELETE FROM subcategories WHERE id = ?', [subcategoryId]);
     markDirty();
     await loadCategories();

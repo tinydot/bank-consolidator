@@ -1537,7 +1537,7 @@ async function loadTransactions(page = 0) {
     const countQuery = query.replace(/SELECT[\s\S]*?FROM/, 'SELECT COUNT(*) FROM');
     const totalCount = dbHelpers.queryValue(countQuery, params) || 0;
 
-    query += ` ORDER BY t.date DESC LIMIT ${CONFIG.PAGE_SIZE} OFFSET ${page * CONFIG.PAGE_SIZE}`;
+    query += ` ORDER BY t.date DESC, ABS(t.amount) DESC, t.description ASC LIMIT ${CONFIG.PAGE_SIZE} OFFSET ${page * CONFIG.PAGE_SIZE}`;
 
     const result = db.exec(query, params);
     displayTransactions(result, totalCount, page);

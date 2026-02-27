@@ -5235,11 +5235,36 @@ function loadFinancialHealth() {
 function showUpdateBalanceForm() {
     document.getElementById('updateBalanceForm').style.display = 'block';
     document.getElementById('balanceDate').value = new Date().toISOString().split('T')[0];
+
+    const select = document.getElementById('balanceAccountName');
+    const accounts = dbHelpers.queryAll(`
+        SELECT DISTINCT a.account_name, b.name AS bank_name
+        FROM accounts a
+        JOIN banks b ON a.bank_id = b.id
+        ORDER BY b.name, a.account_name
+    `);
+
+    select.innerHTML = '';
+    if (accounts.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No accounts imported yet';
+        opt.disabled = true;
+        opt.selected = true;
+        select.appendChild(opt);
+    } else {
+        accounts.forEach(acc => {
+            const opt = document.createElement('option');
+            opt.value = acc.account_name;
+            opt.textContent = `${acc.bank_name} — ${acc.account_name}`;
+            select.appendChild(opt);
+        });
+    }
 }
 
 function cancelBalanceForm() {
     document.getElementById('updateBalanceForm').style.display = 'none';
-    document.getElementById('balanceAccountName').value = '';
+    document.getElementById('balanceAccountName').selectedIndex = 0;
     document.getElementById('balanceAmount').value = '';
 }
 

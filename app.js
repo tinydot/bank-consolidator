@@ -2154,14 +2154,59 @@ function renderCategoryDetailTags() {
 
     const frag = document.createDocumentFragment();
 
+    // For the current month, calculate upcoming committed bills from the planner
+    // (term commitments with specific payment dates still in the future this month)
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10); // YYYY-MM-DD
+    const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    const isCurrentMonth = tagViewMonth === currentMonthKey;
+
+    let upcomingCommitted = 0;
+    if (isCurrentMonth) {
+        const currentMonthNum = today.getMonth() + 1;
+        const todayDay = today.getDate();
+        const commitRows = dbHelpers.queryAll(
+            `SELECT type, amount, day_of_month, payment_dates, active_months FROM expense_commitments WHERE enabled = 1`
+        );
+        commitRows.forEach(r => {
+            const [type, amount, dayOfMonth, paymentDates, activeMonths] = r;
+            if (type === 'monthly') {
+                if (activeMonths) {
+                    const allowed = activeMonths.split(',').map(m => parseInt(m.trim()));
+                    if (!allowed.includes(currentMonthNum)) return;
+                }
+                // Only count if there's a specific day set and it's still upcoming
+                if (dayOfMonth && dayOfMonth > todayDay) {
+                    upcomingCommitted += amount;
+                }
+            } else if (type === 'term' && paymentDates) {
+                paymentDates.split(',').map(d => d.trim()).forEach(d => {
+                    if (d.startsWith(currentMonthKey) && d > todayStr) {
+                        upcomingCommitted += amount;
+                    }
+                });
+            }
+        });
+    }
+
     // Add monthly summary header
     const summaryHeader = document.createElement('div');
-    summaryHeader.style.cssText = 'background:#f8f9fa; border:1px solid #dee2e6; border-radius:8px; padding:16px 20px; margin-bottom:20px; display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:20px;';
+    const showUpcoming = isCurrentMonth && upcomingCommitted > 0;
+    summaryHeader.style.cssText = `background:#f8f9fa; border:1px solid #dee2e6; border-radius:8px; padding:16px 20px; margin-bottom:20px; display:grid; grid-template-columns:repeat(${showUpcoming ? 5 : 4}, 1fr); gap:20px;`;
 
     const netAmount = totalIncome - totalExpenses;
     const netColor = netAmount >= 0 ? '#27ae60' : '#e74c3c';
     const budgetColor = totalExpenses > totalBudget ? '#e74c3c' : '#27ae60';
     const incomeLabel = usingExpectedIncome ? 'Expected Income' : 'Total Income';
+
+    const safeToSpend = netAmount - upcomingCommitted;
+    const safeColor = safeToSpend >= 0 ? '#27ae60' : '#e74c3c';
+    const upcomingCard = showUpcoming ? `
+        <div style="border-left:3px solid #e67e22; padding-left:12px;">
+            <div style="font-size:11px; color:#7f8c8d; font-weight:600; margin-bottom:6px; text-transform:uppercase;">After Planned Bills</div>
+            <div style="font-size:20px; font-weight:700; color:${safeColor};">${safeToSpend >= 0 ? '+' : '-'}$${Math.abs(safeToSpend).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+            <div style="font-size:11px; color:#e67e22; margin-top:4px;">$${upcomingCommitted.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} still due</div>
+        </div>` : '';
 
     summaryHeader.innerHTML = `
         <div>
@@ -2180,6 +2225,7 @@ function renderCategoryDetailTags() {
             <div style="font-size:11px; color:#7f8c8d; font-weight:600; margin-bottom:6px; text-transform:uppercase;">Remaining</div>
             <div style="font-size:20px; font-weight:700; color:${netColor};">${netAmount >= 0 ? '+' : '-'}$${Math.abs(netAmount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
         </div>
+        ${upcomingCard}
     `;
     frag.appendChild(summaryHeader);
 

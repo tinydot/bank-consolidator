@@ -2104,24 +2104,32 @@ function renderCategoryDetailTags() {
         }
     });
 
-    // Get income for this month
-    let incomeQuery = `
-        SELECT SUM(amount) FROM transactions 
-        WHERE amount > 0 AND ignored = 0 AND strftime('%Y-%m', date) = ?
-    `;
-    if (includeManual && startDate) {
-        incomeQuery = `
-            SELECT SUM(amount) FROM (
-                SELECT amount FROM transactions WHERE amount > 0 AND ignored = 0 AND strftime('%Y-%m', date) = ?
-                UNION ALL
-                SELECT amount FROM manual_transactions WHERE amount > 0 AND strftime('%Y-%m', date) = ? AND date >= ?
-            )
+    // Use fixed expected income if set, otherwise derive from transactions
+    const expectedIncomeVal = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'monthly_expected_income'");
+    const usingExpectedIncome = expectedIncomeVal !== null && expectedIncomeVal !== '' && !isNaN(parseFloat(expectedIncomeVal));
+
+    if (usingExpectedIncome) {
+        totalIncome = parseFloat(expectedIncomeVal);
+    } else {
+        // Get income for this month from transactions
+        let incomeQuery = `
+            SELECT SUM(amount) FROM transactions
+            WHERE amount > 0 AND ignored = 0 AND strftime('%Y-%m', date) = ?
         `;
-    }
-    const incomeParams = includeManual && startDate ? [tagViewMonth, tagViewMonth, startDate] : [tagViewMonth];
-    const incomeResult = db.exec(incomeQuery, incomeParams);
-    if (incomeResult.length && incomeResult[0].values[0][0]) {
-        totalIncome = incomeResult[0].values[0][0];
+        if (includeManual && startDate) {
+            incomeQuery = `
+                SELECT SUM(amount) FROM (
+                    SELECT amount FROM transactions WHERE amount > 0 AND ignored = 0 AND strftime('%Y-%m', date) = ?
+                    UNION ALL
+                    SELECT amount FROM manual_transactions WHERE amount > 0 AND strftime('%Y-%m', date) = ? AND date >= ?
+                )
+            `;
+        }
+        const incomeParams = includeManual && startDate ? [tagViewMonth, tagViewMonth, startDate] : [tagViewMonth];
+        const incomeResult = db.exec(incomeQuery, incomeParams);
+        if (incomeResult.length && incomeResult[0].values[0][0]) {
+            totalIncome = incomeResult[0].values[0][0];
+        }
     }
 
     // Calculate total budget (sum of all category budgets)
@@ -2153,10 +2161,11 @@ function renderCategoryDetailTags() {
     const netAmount = totalIncome - totalExpenses;
     const netColor = netAmount >= 0 ? '#27ae60' : '#e74c3c';
     const budgetColor = totalExpenses > totalBudget ? '#e74c3c' : '#27ae60';
+    const incomeLabel = usingExpectedIncome ? 'Expected Income' : 'Total Income';
 
     summaryHeader.innerHTML = `
         <div>
-            <div style="font-size:11px; color:#7f8c8d; font-weight:600; margin-bottom:6px; text-transform:uppercase;">Total Income</div>
+            <div style="font-size:11px; color:#7f8c8d; font-weight:600; margin-bottom:6px; text-transform:uppercase;">${incomeLabel}</div>
             <div style="font-size:20px; font-weight:700; color:#27ae60;">$${totalIncome.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
         </div>
         <div>
@@ -2168,8 +2177,8 @@ function renderCategoryDetailTags() {
             <div style="font-size:20px; font-weight:700; color:${budgetColor};">$${totalBudget.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
         </div>
         <div>
-            <div style="font-size:11px; color:#7f8c8d; font-weight:600; margin-bottom:6px; text-transform:uppercase;">Net</div>
-            <div style="font-size:20px; font-weight:700; color:${netColor};">${netAmount >= 0 ? '+' : ''}$${Math.abs(netAmount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+            <div style="font-size:11px; color:#7f8c8d; font-weight:600; margin-bottom:6px; text-transform:uppercase;">Remaining</div>
+            <div style="font-size:20px; font-weight:700; color:${netColor};">${netAmount >= 0 ? '+' : '-'}$${Math.abs(netAmount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
         </div>
     `;
     frag.appendChild(summaryHeader);
@@ -3164,6 +3173,42 @@ async function loadDatabaseFromIndexedDB() {
 // §16. SETTINGS - Manual Analytics Integration
 // ═══════════════════════════════════════════════════════════════════════════
 
+function loadMonthlyIncomeSettings() {
+    const val = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'monthly_expected_income'");
+    const input = document.getElementById('monthlyExpectedIncome');
+    if (input) input.value = val || '';
+}
+
+async function saveMonthlyIncome() {
+    const input = document.getElementById('monthlyExpectedIncome');
+    const val = input ? input.value.trim() : '';
+    if (val !== '' && (isNaN(parseFloat(val)) || parseFloat(val) < 0)) {
+        alert('Please enter a valid positive number.');
+        return;
+    }
+    if (val === '') {
+        db.run("DELETE FROM settings WHERE key = 'monthly_expected_income'");
+    } else {
+        db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('monthly_expected_income', ?)", [val]);
+    }
+    markDirty();
+    showMessage('success', val === '' ? 'Monthly income cleared.' : `Monthly income set to $${parseFloat(val).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}.`);
+    if (document.getElementById('analytics-tab').classList.contains('active')) {
+        await updateAnalytics();
+    }
+}
+
+async function clearMonthlyIncome() {
+    const input = document.getElementById('monthlyExpectedIncome');
+    if (input) input.value = '';
+    db.run("DELETE FROM settings WHERE key = 'monthly_expected_income'");
+    markDirty();
+    showMessage('success', 'Monthly income cleared. Analytics will use actual transaction income.');
+    if (document.getElementById('analytics-tab').classList.contains('active')) {
+        await updateAnalytics();
+    }
+}
+
 function loadManualAnalyticsSettings() {
     const includeManual = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'include_manual_in_analytics'") === '1';
     const startDate = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'manual_analytics_start_date'") || '';
@@ -3809,6 +3854,7 @@ function switchTab(tab) {
 
     if (tab === 'settings') {
         loadManualAnalyticsSettings();
+        loadMonthlyIncomeSettings();
     }
 }
 

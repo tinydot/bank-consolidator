@@ -5348,9 +5348,11 @@ function showUpdateBalanceForm() {
         select.appendChild(opt);
     } else {
         accounts.forEach(acc => {
+            const accountName = acc[0];
+            const bankName = acc[1];
             const opt = document.createElement('option');
-            opt.value = acc.account_name;
-            opt.textContent = `${acc.bank_name} — ${acc.account_name}`;
+            opt.value = accountName;
+            opt.textContent = `${bankName} — ${accountName}`;
             select.appendChild(opt);
         });
     }

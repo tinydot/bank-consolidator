@@ -1566,31 +1566,46 @@ function updateBankFilter() {
 }
 
 function updateAccountFilter() {
-    const result = db.exec(`
-        SELECT DISTINCT a.id, b.name, a.account_name, a.account_number
-        FROM accounts a
-        JOIN banks b ON a.bank_id = b.id
-        ORDER BY b.name, a.account_name
-    `);
+    const bankName = document.getElementById('filterBank').value;
     const select = document.getElementById('filterAccount');
     const currentValue = select.value;
 
     select.innerHTML = '<option value="">All Accounts</option>';
 
+    let result;
+    if (bankName) {
+        result = db.exec(`
+            SELECT DISTINCT a.id, b.name, a.account_name, a.account_number
+            FROM accounts a
+            JOIN banks b ON a.bank_id = b.id
+            WHERE b.name = ?
+            ORDER BY a.account_name
+        `, [bankName]);
+    } else {
+        result = db.exec(`
+            SELECT DISTINCT a.id, b.name, a.account_name, a.account_number
+            FROM accounts a
+            JOIN banks b ON a.bank_id = b.id
+            ORDER BY b.name, a.account_name
+        `);
+    }
+
     if (result.length > 0) {
         result[0].values.forEach(row => {
             const accountId = row[0];
-            const bankName = row[1];
+            const bank = row[1];
             const accountName = row[2];
             const accountNumber = row[3];
-            const displayName = accountNumber 
-                ? `${bankName} - ${accountName} (...${accountNumber})`
-                : `${bankName} - ${accountName}`;
+            const displayName = bankName
+                ? (accountNumber ? `${accountName} (...${accountNumber})` : accountName)
+                : (accountNumber ? `${bank} - ${accountName} (...${accountNumber})` : `${bank} - ${accountName}`);
             select.innerHTML += `<option value="${accountId}">${displayName}</option>`;
         });
     }
 
-    select.value = currentValue;
+    // Keep current selection only if it's still valid for the new bank
+    const optionExists = Array.from(select.options).some(opt => opt.value === currentValue);
+    select.value = optionExists ? currentValue : '';
 }
 
 function updateCategoryFilter() {

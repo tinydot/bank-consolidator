@@ -11,3 +11,9 @@ or Import History tab.
 
 Do **not** add automatic deduplication (hash-based or otherwise) without explicit
 user request.
+
+### No server-side / cross-device data storage
+The app intentionally remains **client-side only** (IndexedDB + localStorage).
+Server-side storage (Firebase, Supabase, Cloudflare D1, etc.) was considered but
+not pursued. Do **not** add authentication, cloud sync, or any backend integration
+without explicit user request.

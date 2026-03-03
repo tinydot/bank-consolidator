@@ -8,6 +8,12 @@
       "port": 8080
     },
     {
+      "name": "Python static server 8081",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8081"],
+      "port": 8081
+    },
+    {
       "name": "npx serve",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["serve", "-l", "3000"],

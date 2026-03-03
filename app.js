@@ -2104,24 +2104,32 @@ function renderCategoryDetailTags() {
         }
     });
 
-    // Get income for this month
-    let incomeQuery = `
-        SELECT SUM(amount) FROM transactions 
-        WHERE amount > 0 AND ignored = 0 AND strftime('%Y-%m', date) = ?
-    `;
-    if (includeManual && startDate) {
-        incomeQuery = `
-            SELECT SUM(amount) FROM (
-                SELECT amount FROM transactions WHERE amount > 0 AND ignored = 0 AND strftime('%Y-%m', date) = ?
-                UNION ALL
-                SELECT amount FROM manual_transactions WHERE amount > 0 AND strftime('%Y-%m', date) = ? AND date >= ?
-            )
+    // Use fixed expected income if set, otherwise derive from transactions
+    const expectedIncomeVal = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'monthly_expected_income'");
+    const usingExpectedIncome = expectedIncomeVal !== null && expectedIncomeVal !== '' && !isNaN(parseFloat(expectedIncomeVal));
+
+    if (usingExpectedIncome) {
+        totalIncome = parseFloat(expectedIncomeVal);
+    } else {
+        // Get income for this month from transactions
+        let incomeQuery = `
+            SELECT SUM(amount) FROM transactions
+            WHERE amount > 0 AND ignored = 0 AND strftime('%Y-%m', date) = ?
         `;
-    }
-    const incomeParams = includeManual && startDate ? [tagViewMonth, tagViewMonth, startDate] : [tagViewMonth];
-    const incomeResult = db.exec(incomeQuery, incomeParams);
-    if (incomeResult.length && incomeResult[0].values[0][0]) {
-        totalIncome = incomeResult[0].values[0][0];
+        if (includeManual && startDate) {
+            incomeQuery = `
+                SELECT SUM(amount) FROM (
+                    SELECT amount FROM transactions WHERE amount > 0 AND ignored = 0 AND strftime('%Y-%m', date) = ?
+                    UNION ALL
+                    SELECT amount FROM manual_transactions WHERE amount > 0 AND strftime('%Y-%m', date) = ? AND date >= ?
+                )
+            `;
+        }
+        const incomeParams = includeManual && startDate ? [tagViewMonth, tagViewMonth, startDate] : [tagViewMonth];
+        const incomeResult = db.exec(incomeQuery, incomeParams);
+        if (incomeResult.length && incomeResult[0].values[0][0]) {
+            totalIncome = incomeResult[0].values[0][0];
+        }
     }
 
     // Calculate total budget (sum of all category budgets)
@@ -2146,17 +2154,63 @@ function renderCategoryDetailTags() {
 
     const frag = document.createDocumentFragment();
 
+    // For the current month, calculate upcoming committed bills from the planner
+    // (term commitments with specific payment dates still in the future this month)
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10); // YYYY-MM-DD
+    const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    const isCurrentMonth = tagViewMonth === currentMonthKey;
+
+    let upcomingCommitted = 0;
+    if (isCurrentMonth) {
+        const currentMonthNum = today.getMonth() + 1;
+        const todayDay = today.getDate();
+        const commitRows = dbHelpers.queryAll(
+            `SELECT type, amount, day_of_month, payment_dates, active_months FROM expense_commitments WHERE enabled = 1`
+        );
+        commitRows.forEach(r => {
+            const [type, amount, dayOfMonth, paymentDates, activeMonths] = r;
+            if (type === 'monthly') {
+                if (activeMonths) {
+                    const allowed = activeMonths.split(',').map(m => parseInt(m.trim()));
+                    if (!allowed.includes(currentMonthNum)) return;
+                }
+                // Only count if there's a specific day set and it's still upcoming
+                if (dayOfMonth && dayOfMonth > todayDay) {
+                    upcomingCommitted += amount;
+                }
+            } else if (type === 'term' && paymentDates) {
+                paymentDates.split(',').map(d => d.trim()).forEach(d => {
+                    if (d.startsWith(currentMonthKey) && d > todayStr) {
+                        upcomingCommitted += amount;
+                    }
+                });
+            }
+        });
+    }
+
     // Add monthly summary header
     const summaryHeader = document.createElement('div');
-    summaryHeader.style.cssText = 'background:#f8f9fa; border:1px solid #dee2e6; border-radius:8px; padding:16px 20px; margin-bottom:20px; display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:20px;';
+    const showUpcoming = isCurrentMonth && upcomingCommitted > 0;
+    summaryHeader.style.cssText = `background:#f8f9fa; border:1px solid #dee2e6; border-radius:8px; padding:16px 20px; margin-bottom:20px; display:grid; grid-template-columns:repeat(${showUpcoming ? 5 : 4}, 1fr); gap:20px;`;
 
     const netAmount = totalIncome - totalExpenses;
     const netColor = netAmount >= 0 ? '#27ae60' : '#e74c3c';
     const budgetColor = totalExpenses > totalBudget ? '#e74c3c' : '#27ae60';
+    const incomeLabel = usingExpectedIncome ? 'Expected Income' : 'Total Income';
+
+    const safeToSpend = netAmount - upcomingCommitted;
+    const safeColor = safeToSpend >= 0 ? '#27ae60' : '#e74c3c';
+    const upcomingCard = showUpcoming ? `
+        <div style="border-left:3px solid #e67e22; padding-left:12px;">
+            <div style="font-size:11px; color:#7f8c8d; font-weight:600; margin-bottom:6px; text-transform:uppercase;">After Planned Bills</div>
+            <div style="font-size:20px; font-weight:700; color:${safeColor};">${safeToSpend >= 0 ? '+' : '-'}$${Math.abs(safeToSpend).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+            <div style="font-size:11px; color:#e67e22; margin-top:4px;">$${upcomingCommitted.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} still due</div>
+        </div>` : '';
 
     summaryHeader.innerHTML = `
         <div>
-            <div style="font-size:11px; color:#7f8c8d; font-weight:600; margin-bottom:6px; text-transform:uppercase;">Total Income</div>
+            <div style="font-size:11px; color:#7f8c8d; font-weight:600; margin-bottom:6px; text-transform:uppercase;">${incomeLabel}</div>
             <div style="font-size:20px; font-weight:700; color:#27ae60;">$${totalIncome.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
         </div>
         <div>
@@ -2168,9 +2222,10 @@ function renderCategoryDetailTags() {
             <div style="font-size:20px; font-weight:700; color:${budgetColor};">$${totalBudget.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
         </div>
         <div>
-            <div style="font-size:11px; color:#7f8c8d; font-weight:600; margin-bottom:6px; text-transform:uppercase;">Net</div>
-            <div style="font-size:20px; font-weight:700; color:${netColor};">${netAmount >= 0 ? '+' : ''}$${Math.abs(netAmount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+            <div style="font-size:11px; color:#7f8c8d; font-weight:600; margin-bottom:6px; text-transform:uppercase;">Remaining</div>
+            <div style="font-size:20px; font-weight:700; color:${netColor};">${netAmount >= 0 ? '+' : '-'}$${Math.abs(netAmount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
         </div>
+        ${upcomingCard}
     `;
     frag.appendChild(summaryHeader);
 
@@ -3164,6 +3219,42 @@ async function loadDatabaseFromIndexedDB() {
 // §16. SETTINGS - Manual Analytics Integration
 // ═══════════════════════════════════════════════════════════════════════════
 
+function loadMonthlyIncomeSettings() {
+    const val = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'monthly_expected_income'");
+    const input = document.getElementById('monthlyExpectedIncome');
+    if (input) input.value = val || '';
+}
+
+async function saveMonthlyIncome() {
+    const input = document.getElementById('monthlyExpectedIncome');
+    const val = input ? input.value.trim() : '';
+    if (val !== '' && (isNaN(parseFloat(val)) || parseFloat(val) < 0)) {
+        alert('Please enter a valid positive number.');
+        return;
+    }
+    if (val === '') {
+        db.run("DELETE FROM settings WHERE key = 'monthly_expected_income'");
+    } else {
+        db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('monthly_expected_income', ?)", [val]);
+    }
+    markDirty();
+    showMessage('success', val === '' ? 'Monthly income cleared.' : `Monthly income set to $${parseFloat(val).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}.`);
+    if (document.getElementById('analytics-tab').classList.contains('active')) {
+        await updateAnalytics();
+    }
+}
+
+async function clearMonthlyIncome() {
+    const input = document.getElementById('monthlyExpectedIncome');
+    if (input) input.value = '';
+    db.run("DELETE FROM settings WHERE key = 'monthly_expected_income'");
+    markDirty();
+    showMessage('success', 'Monthly income cleared. Analytics will use actual transaction income.');
+    if (document.getElementById('analytics-tab').classList.contains('active')) {
+        await updateAnalytics();
+    }
+}
+
 function loadManualAnalyticsSettings() {
     const includeManual = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'include_manual_in_analytics'") === '1';
     const startDate = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'manual_analytics_start_date'") || '';
@@ -3382,8 +3473,9 @@ async function addCategory() {
 }
 
 async function deleteCategory(categoryId, categoryName) {
-    if (!confirm(`Delete category "${categoryName}"? This will also delete all its subcategories. Transactions using this category will keep it.`)) return;
+    if (!confirm(`Delete category "${categoryName}"? This will also delete all its subcategories. Transactions using this category will become uncategorized.`)) return;
 
+    db.run('UPDATE transactions SET category_id = NULL, subcategory_id = NULL WHERE category_id = ?', [categoryId]);
     db.run('DELETE FROM subcategories WHERE category_id = ?', [categoryId]);
     db.run('DELETE FROM categories WHERE id = ?', [categoryId]);
     markDirty();
@@ -3460,8 +3552,9 @@ async function addSubcategory(categoryId) {
 }
 
 async function deleteSubcategory(subcategoryId, subcategoryName, categoryName) {
-    if (!confirm(`Delete subcategory "${subcategoryName}" from ${categoryName}?`)) return;
+    if (!confirm(`Delete subcategory "${subcategoryName}" from ${categoryName}? Transactions using this subcategory will become uncategorized.`)) return;
 
+    db.run('UPDATE transactions SET category_id = NULL, subcategory_id = NULL WHERE subcategory_id = ?', [subcategoryId]);
     db.run('DELETE FROM subcategories WHERE id = ?', [subcategoryId]);
     markDirty();
     await loadCategories();
@@ -3807,6 +3900,7 @@ function switchTab(tab) {
 
     if (tab === 'settings') {
         loadManualAnalyticsSettings();
+        loadMonthlyIncomeSettings();
     }
 }
 
@@ -5235,11 +5329,38 @@ function loadFinancialHealth() {
 function showUpdateBalanceForm() {
     document.getElementById('updateBalanceForm').style.display = 'block';
     document.getElementById('balanceDate').value = new Date().toISOString().split('T')[0];
+
+    const select = document.getElementById('balanceAccountName');
+    const accounts = dbHelpers.queryAll(`
+        SELECT DISTINCT a.account_name, b.name AS bank_name
+        FROM accounts a
+        JOIN banks b ON a.bank_id = b.id
+        ORDER BY b.name, a.account_name
+    `);
+
+    select.innerHTML = '';
+    if (accounts.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No accounts imported yet';
+        opt.disabled = true;
+        opt.selected = true;
+        select.appendChild(opt);
+    } else {
+        accounts.forEach(acc => {
+            const accountName = acc[0];
+            const bankName = acc[1];
+            const opt = document.createElement('option');
+            opt.value = accountName;
+            opt.textContent = `${bankName} — ${accountName}`;
+            select.appendChild(opt);
+        });
+    }
 }
 
 function cancelBalanceForm() {
     document.getElementById('updateBalanceForm').style.display = 'none';
-    document.getElementById('balanceAccountName').value = '';
+    document.getElementById('balanceAccountName').selectedIndex = 0;
     document.getElementById('balanceAmount').value = '';
 }
 

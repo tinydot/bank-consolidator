@@ -4020,8 +4020,9 @@ async function applyRulesToManualTransactions() {
 
     markDirty();
     await loadManualTransactions();
+    await updateAnalytics();
 
-    const message = categorizedCount > 0 
+    const message = categorizedCount > 0
         ? `Applied rules: ${categorizedCount} transaction${categorizedCount !== 1 ? 's' : ''} categorized`
         : 'No transactions matched the rules';
 

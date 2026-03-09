@@ -318,6 +318,33 @@ tr:hover {
 .pagination button {
     padding: 8px 16px;
 }
+/* Planner Month View */
+.planner-view-btn {
+    background: white;
+    color: #7f8c8d;
+    border: 1px solid #dee2e6;
+    padding: 7px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.15s;
+}
+
+.planner-view-btn:hover {
+    background: #f0f4ff;
+    color: #2c3e50;
+    border-color: #3498db;
+}
+
+.planner-view-btn.active {
+    background: #3498db;
+    color: white;
+    border-color: #3498db;
+}
+
+.planner-cal-day:hover {
+    background: #f0f4ff !important;
+}
+
 /* Modal styles */
 .modal-overlay {
     position: fixed;

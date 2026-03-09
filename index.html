@@ -456,6 +456,15 @@
                     </div>
                 </div>
 
+                <!-- Planner View Toggle -->
+                <div style="display:flex; gap:6px; margin-bottom:20px;">
+                    <button class="planner-view-btn active" data-view="grid" onclick="switchPlannerView('grid')">📊 6-Month Grid</button>
+                    <button class="planner-view-btn" data-view="month" onclick="switchPlannerView('month')">📅 Month View</button>
+                </div>
+
+                <!-- Grid View wrapper (activities + 6-month table) -->
+                <div id="plannerGridView">
+
                 <!-- Planned Activities -->
                 <div style="margin-bottom:24px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
@@ -519,6 +528,41 @@
 
                 <!-- 6-month table -->
                 <div id="plannerTable"></div>
+
+                </div><!-- /plannerGridView -->
+
+                <!-- Month View -->
+                <div id="plannerMonthView" style="display:none;">
+                    <!-- Navigation -->
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; background:#f8f9fa; border-radius:8px; padding:12px 16px;">
+                        <button class="secondary-btn" style="padding:6px 14px;" onclick="shiftMonthView(-1)">← Prev</button>
+                        <div style="text-align:center;">
+                            <div id="monthViewLabel" style="font-size:18px; font-weight:700; color:#2c3e50;"></div>
+                            <div style="font-size:12px; color:#7f8c8d; margin-top:2px;">Click any day to see details</div>
+                        </div>
+                        <button class="secondary-btn" style="padding:6px 14px;" onclick="shiftMonthView(1)">Next →</button>
+                    </div>
+
+                    <!-- Legend -->
+                    <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px; padding:10px 14px; background:#f8f9fa; border-radius:6px;">
+                        <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#555;">
+                            <div style="width:10px; height:10px; background:#3498db; border-radius:2px;"></div>Bank transactions
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#555;">
+                            <div style="width:10px; height:10px; background:#e67e22; border-radius:2px;"></div>Manual transactions
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#555;">
+                            <div style="width:10px; height:10px; background:#9b59b6; border-radius:2px;"></div>Expected commitments
+                        </div>
+                    </div>
+
+                    <!-- Calendar Container -->
+                    <div id="monthViewCalendar"></div>
+
+                    <!-- Day Detail Panel -->
+                    <div id="plannerDayDetail" style="display:none; background:#fff; border:1px solid #dee2e6; border-radius:8px; padding:16px; margin-top:16px;"></div>
+                </div><!-- /plannerMonthView -->
+
             </div>
 
             <!-- SETTINGS TAB -->

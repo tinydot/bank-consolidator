@@ -3358,24 +3358,24 @@ function displayCategories(result) {
         const subcategories = allSubcategories[id] || [];
 
         const div = document.createElement('div');
-        div.style.cssText = 'background: white; border: 1px solid #ecf0f1; border-radius: 8px; padding: 20px; margin-bottom: 15px;';
+        div.style.cssText = 'background: white; border: 1px solid #ecf0f1; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px;';
         div.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <div style="display: flex; align-items: center; gap: 15px;">
-                    <span style="font-size: 32px;">${escapeHtml(icon)}</span>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 20px;">${escapeHtml(icon)}</span>
                     <div>
                         <h4 style="margin: 0;">${escapeHtml(name)}</h4>
                         <span style="background: ${escapeHtml(color)}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px;">${escapeHtml(color)}</span>
                     </div>
                 </div>
                 <div>
-                    <button data-action="add-sub" style="padding: 5px 10px; font-size: 12px; margin-right: 5px;">+ Add Subcategory</button>
-                    <button data-action="delete-cat" class="danger-btn" style="padding: 5px 10px; font-size: 12px;">Delete</button>
+                    <button data-action="add-sub" style="padding: 4px 8px; font-size: 12px; margin-right: 4px;">+ Add Subcategory</button>
+                    <button data-action="delete-cat" class="danger-btn" style="padding: 4px 8px; font-size: 12px;">Delete</button>
                 </div>
             </div>
-            <div style="margin-left: 50px;">
+            <div style="margin-left: 28px;">
                 <strong style="color: #7f8c8d; font-size: 12px;">SUBCATEGORIES:</strong>
-                <div data-subcats style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;"></div>
+                <div data-subcats style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;"></div>
             </div>
         `;
 

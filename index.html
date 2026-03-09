@@ -562,29 +562,32 @@
                     </div>
                 </div>
 
-                <h3 style="margin-bottom: 20px;">Categories</h3>
-                <p style="color: #7f8c8d; margin-bottom: 20px;">Manage transaction categories</p>
+                <h3 style="margin-bottom: 10px;">Categories</h3>
 
-                <div class="button-group" style="margin-bottom: 20px;">
+                <div class="button-group" style="margin-bottom: 12px;">
                     <button onclick="showAddCategoryForm()">+ Add Category</button>
                 </div>
 
-                <div id="addCategoryForm" style="display: none; background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                    <h4 style="margin-bottom: 15px;">Add New Category</h4>
-                    <div class="form-group">
-                        <label>Category Name</label>
-                        <input type="text" id="newCategoryName" placeholder="e.g., Fitness, Subscriptions">
+                <div id="addCategoryForm" style="display: none; background: #f8f9fa; padding: 12px; border-radius: 8px; margin-bottom: 12px;">
+                    <h4 style="margin-bottom: 10px;">Add New Category</h4>
+                    <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
+                        <div class="form-group" style="margin: 0; flex: 1; min-width: 140px;">
+                            <label>Category Name</label>
+                            <input type="text" id="newCategoryName" placeholder="e.g., Fitness, Subscriptions">
+                        </div>
+                        <div class="form-group" style="margin: 0; width: 100px;">
+                            <label>Icon (emoji)</label>
+                            <input type="text" id="newCategoryIcon" placeholder="e.g., 💪" maxlength="2">
+                        </div>
+                        <div class="form-group" style="margin: 0; width: 80px;">
+                            <label>Color</label>
+                            <input type="color" id="newCategoryColor" value="#3498db">
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button onclick="addCategory()">Create</button>
+                            <button class="secondary-btn" onclick="cancelAddCategory()">Cancel</button>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label>Icon (emoji)</label>
-                        <input type="text" id="newCategoryIcon" placeholder="e.g., 💪, 📱" maxlength="2">
-                    </div>
-                    <div class="form-group">
-                        <label>Color</label>
-                        <input type="color" id="newCategoryColor" value="#3498db">
-                    </div>
-                    <button onclick="addCategory()">Create Category</button>
-                    <button class="secondary-btn" onclick="cancelAddCategory()">Cancel</button>
                 </div>
 
                 <div id="categoriesListContainer"></div>

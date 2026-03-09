@@ -5809,6 +5809,413 @@ async function savePlannerVariable() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// §16. PLANNER MONTH VIEW
+// ═══════════════════════════════════════════════════════════════════════════
+
+let monthViewYear  = null;
+let monthViewMonth = null; // 1–12
+
+function switchPlannerView(mode) {
+    document.getElementById('plannerGridView').style.display  = mode === 'grid'  ? '' : 'none';
+    document.getElementById('plannerMonthView').style.display = mode === 'month' ? '' : 'none';
+    document.querySelectorAll('.planner-view-btn').forEach(btn => {
+        const active = btn.dataset.view === mode;
+        if (active) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+    if (mode === 'month') {
+        if (!monthViewYear) {
+            const now = new Date();
+            monthViewYear  = now.getFullYear();
+            monthViewMonth = now.getMonth() + 1;
+        }
+        renderMonthView();
+    }
+}
+
+function shiftMonthView(delta) {
+    monthViewMonth += delta;
+    if (monthViewMonth > 12) { monthViewMonth = 1;  monthViewYear++; }
+    if (monthViewMonth < 1)  { monthViewMonth = 12; monthViewYear--; }
+    closePlannerDayDetail();
+    renderMonthView();
+}
+
+function renderMonthView() {
+    const container = document.getElementById('monthViewCalendar');
+    if (!container) return;
+
+    const year  = monthViewYear;
+    const month = monthViewMonth;
+
+    // Update navigation label
+    const labelEl = document.getElementById('monthViewLabel');
+    if (labelEl) {
+        labelEl.textContent = new Date(year, month - 1, 1)
+            .toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    }
+
+    const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+
+    // ── Actual bank transactions ───────────────────────────────────────────
+    const txRows = dbHelpers.queryAll(`
+        SELECT t.date, t.description, t.amount,
+               c.name AS cat_name, c.icon AS cat_icon, c.color AS cat_color
+        FROM transactions t
+        LEFT JOIN categories c ON t.category_id = c.id
+        WHERE strftime('%Y-%m', t.date) = ? AND t.ignored = 0
+        ORDER BY t.date, t.amount
+    `, [monthKey]);
+
+    // ── Manual transactions (respects analytics settings) ─────────────────
+    const includeManual   = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'include_manual_in_analytics'") === '1';
+    const manualStartDate = includeManual
+        ? (dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'manual_analytics_start_date'") || '')
+        : null;
+
+    let manualRows = [];
+    if (includeManual && manualStartDate) {
+        manualRows = dbHelpers.queryAll(`
+            SELECT mt.date, mt.description, mt.amount,
+                   c.name AS cat_name, c.icon AS cat_icon, c.color AS cat_color
+            FROM manual_transactions mt
+            LEFT JOIN categories c ON mt.category_id = c.id
+            WHERE strftime('%Y-%m', mt.date) = ? AND mt.date >= ?
+            ORDER BY mt.date, mt.amount
+        `, [monthKey, manualStartDate]);
+    }
+
+    // ── Planner commitments ────────────────────────────────────────────────
+    const commitmentRows = dbHelpers.queryAll(`
+        SELECT ec.id, ec.description, ec.amount, ec.type,
+               ec.day_of_month, ec.payment_dates, ec.active_months,
+               ec.notes, ec.enabled,
+               c.name AS cat_name, c.icon AS cat_icon, c.color AS cat_color
+        FROM expense_commitments ec
+        LEFT JOIN categories c ON ec.category_id = c.id
+        WHERE ec.enabled = 1
+    `);
+
+    const commitments = commitmentRows.map(r => ({
+        id: r[0], description: r[1], amount: r[2], type: r[3],
+        day_of_month: r[4], payment_dates: r[5], active_months: r[6],
+        notes: r[7], enabled: r[8],
+        cat_name: r[9] || 'Uncategorised', cat_icon: r[10] || '📦', cat_color: r[11] || '#9b59b6'
+    }));
+
+    // ── Index by day ───────────────────────────────────────────────────────
+    const txByDay          = {};
+    const manualByDay      = {};
+    const commitmentsByDay = {};
+    const monthlyNoDay     = []; // monthly commitments without a specific day
+
+    txRows.forEach(([date, desc, amount, catName, catIcon, catColor]) => {
+        const day = parseInt(date.split('-')[2]);
+        if (!txByDay[day]) txByDay[day] = [];
+        txByDay[day].push({ desc, amount, catName: catName || 'Uncategorised', catColor: catColor || '#95a5a6', catIcon: catIcon || '📦' });
+    });
+
+    manualRows.forEach(([date, desc, amount, catName, catIcon, catColor]) => {
+        const day = parseInt(date.split('-')[2]);
+        if (!manualByDay[day]) manualByDay[day] = [];
+        manualByDay[day].push({ desc, amount, catName: catName || 'Uncategorised', catColor: catColor || '#95a5a6', catIcon: catIcon || '📦' });
+    });
+
+    commitments.forEach(c => {
+        if (commitmentAmountForMonth(c, year, month) === 0) return;
+        if (c.type === 'term' && c.payment_dates) {
+            c.payment_dates.split(',').forEach(dateStr => {
+                dateStr = dateStr.trim();
+                if (dateStr.startsWith(monthKey + '-')) {
+                    const day = parseInt(dateStr.split('-')[2]);
+                    if (!commitmentsByDay[day]) commitmentsByDay[day] = [];
+                    commitmentsByDay[day].push(c);
+                }
+            });
+        } else if (c.type === 'monthly') {
+            if (c.day_of_month) {
+                const day = c.day_of_month;
+                if (!commitmentsByDay[day]) commitmentsByDay[day] = [];
+                commitmentsByDay[day].push(c);
+            } else {
+                monthlyNoDay.push(c);
+            }
+        }
+    });
+
+    // ── Today reference ───────────────────────────────────────────────────
+    const now     = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const firstDayJS  = new Date(year, month - 1, 1).getDay(); // 0=Sun
+    const startOffset = (firstDayJS + 6) % 7;                  // Mon-first: Mon=0 … Sun=6
+
+    let html = '';
+
+    // ── Monthly commitments banner (no specific day) ───────────────────────
+    if (monthlyNoDay.length > 0) {
+        const bannerTotal = monthlyNoDay.reduce((s, c) => s + commitmentAmountForMonth(c, year, month), 0);
+        html += `<div style="background:#f3eeff; border:1px solid #9b59b630; border-radius:8px; padding:12px 16px; margin-bottom:16px;">`;
+        html += `<div style="font-size:11px; font-weight:700; color:#9b59b6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">📅 Monthly Commitments — no specific date</div>`;
+        html += `<div style="display:flex; flex-wrap:wrap; gap:8px;">`;
+        monthlyNoDay.forEach(c => {
+            html += `<div style="background:white; border:1px solid #9b59b620; border-radius:6px; padding:6px 10px; font-size:12px; display:flex; align-items:center; gap:6px;">`;
+            html += `<span style="font-size:14px;">${escapeHtml(c.cat_icon)}</span>`;
+            html += `<div><div style="font-weight:600; color:#2c3e50;">${escapeHtml(c.description)}</div>`;
+            html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(c.cat_name)}</div></div>`;
+            html += `<span style="color:#9b59b6; font-weight:700; margin-left:4px;">S$${commitmentAmountForMonth(c, year, month).toFixed(2)}</span>`;
+            html += `</div>`;
+        });
+        html += `</div>`;
+        html += `<div style="margin-top:8px; font-size:12px; color:#7f8c8d;">Total this month: <strong style="color:#9b59b6;">S$${bannerTotal.toFixed(2)}</strong></div>`;
+        html += `</div>`;
+    }
+
+    // ── Calendar grid ──────────────────────────────────────────────────────
+    html += `<div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:1px; background:#dee2e6; border-radius:8px; overflow:hidden;">`;
+
+    // Day-of-week headers
+    ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach((name, idx) => {
+        const wknd = idx >= 5;
+        html += `<div style="background:#f8f9fa; text-align:center; padding:8px 4px; font-size:11px; font-weight:700; color:${wknd ? '#e67e22' : '#7f8c8d'}; letter-spacing:0.5px; text-transform:uppercase;">${name}</div>`;
+    });
+
+    // Leading empty cells
+    for (let i = 0; i < startOffset; i++) {
+        html += `<div style="background:#fafafa; min-height:90px;"></div>`;
+    }
+
+    // Day cells
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const isToday  = dateStr === todayStr;
+        const isPast   = dateStr < todayStr;
+        const colIdx   = (startOffset + day - 1) % 7;
+        const isWeekend = colIdx >= 5;
+
+        const dayTx          = txByDay[day]          || [];
+        const dayManual      = manualByDay[day]      || [];
+        const dayCommitments = commitmentsByDay[day] || [];
+
+        const bg = isToday ? '#fff9c4' : (isWeekend ? '#fdf8f0' : 'white');
+
+        html += `<div class="planner-cal-day" style="background:${bg}; min-height:90px; padding:5px; cursor:pointer;" `;
+        html += `onclick="showPlannerDayDetail('${dateStr}')">`;
+
+        // Day number
+        const numColor = isToday ? '#e67e22' : (isPast ? '#2c3e50' : '#95a5a6');
+        if (isToday) {
+            html += `<div style="text-align:right; margin-bottom:3px;"><span style="background:#e67e22; color:white; border-radius:50%; width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; font-size:11px; font-weight:700;">${day}</span></div>`;
+        } else {
+            html += `<div style="text-align:right; font-size:12px; font-weight:500; color:${numColor}; margin-bottom:3px;">${day}</div>`;
+        }
+
+        // Bank transactions badge
+        if (dayTx.length) {
+            const spend  = dayTx.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
+            const income = dayTx.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+            html += `<div style="background:#e8f4fd; border-left:3px solid #3498db; border-radius:2px; padding:2px 4px; margin-bottom:2px; font-size:10px; white-space:nowrap; overflow:hidden;">`;
+            html += `<span style="color:#3498db; font-weight:600;">${dayTx.length}tx</span>`;
+            if (spend  > 0) html += ` <span style="color:#e74c3c;">-${spend.toFixed(0)}</span>`;
+            if (income > 0) html += ` <span style="color:#27ae60;">+${income.toFixed(0)}</span>`;
+            html += `</div>`;
+        }
+
+        // Manual transactions badge
+        if (dayManual.length) {
+            const spend = dayManual.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
+            html += `<div style="background:#fff3e0; border-left:3px solid #e67e22; border-radius:2px; padding:2px 4px; margin-bottom:2px; font-size:10px; white-space:nowrap; overflow:hidden;">`;
+            html += `<span style="color:#e67e22; font-weight:600;">${dayManual.length}m</span>`;
+            if (spend > 0) html += ` <span style="color:#e74c3c;">-${spend.toFixed(0)}</span>`;
+            html += `</div>`;
+        }
+
+        // Commitment badges (up to 2, then +N)
+        if (dayCommitments.length) {
+            dayCommitments.slice(0, 2).forEach(c => {
+                const label = c.description.length > 10 ? c.description.substring(0, 10) + '…' : c.description;
+                html += `<div style="background:#f3eeff; border-left:3px solid #9b59b6; border-radius:2px; padding:2px 4px; margin-bottom:2px; font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">`;
+                html += `<span style="color:#9b59b6; font-weight:600;">S$${c.amount.toFixed(0)}</span> <span style="color:#5d3a8a; font-size:9px;">${escapeHtml(label)}</span>`;
+                html += `</div>`;
+            });
+            if (dayCommitments.length > 2) {
+                html += `<div style="font-size:9px; color:#9b59b6; text-align:right;">+${dayCommitments.length - 2} more</div>`;
+            }
+        }
+
+        html += `</div>`;
+    }
+
+    // Trailing empty cells
+    const totalCells = startOffset + daysInMonth;
+    const trailing   = (7 - (totalCells % 7)) % 7;
+    for (let i = 0; i < trailing; i++) {
+        html += `<div style="background:#fafafa; min-height:90px;"></div>`;
+    }
+    html += `</div>`;
+
+    container.innerHTML = html;
+}
+
+function showPlannerDayDetail(dateStr) {
+    const panel = document.getElementById('plannerDayDetail');
+    if (!panel) return;
+
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const dateLabel = new Date(year, month - 1, day)
+        .toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+    // ── Bank transactions ──────────────────────────────────────────────────
+    const txRows = dbHelpers.queryAll(`
+        SELECT t.description, t.amount,
+               c.name AS cat_name, c.icon AS cat_icon, c.color AS cat_color,
+               sc.name AS subcat_name
+        FROM transactions t
+        LEFT JOIN categories c  ON t.category_id    = c.id
+        LEFT JOIN subcategories sc ON t.subcategory_id = sc.id
+        WHERE t.date = ? AND t.ignored = 0
+        ORDER BY t.amount
+    `, [dateStr]);
+
+    // ── Manual transactions ────────────────────────────────────────────────
+    const includeManual   = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'include_manual_in_analytics'") === '1';
+    const manualStartDate = includeManual
+        ? (dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'manual_analytics_start_date'") || '')
+        : null;
+
+    let manualRows = [];
+    if (includeManual && manualStartDate && dateStr >= manualStartDate) {
+        manualRows = dbHelpers.queryAll(`
+            SELECT mt.description, mt.amount,
+                   c.name AS cat_name, c.icon AS cat_icon, c.color AS cat_color,
+                   sc.name AS subcat_name
+            FROM manual_transactions mt
+            LEFT JOIN categories c  ON mt.category_id    = c.id
+            LEFT JOIN subcategories sc ON mt.subcategory_id = sc.id
+            WHERE mt.date = ?
+            ORDER BY mt.amount
+        `, [dateStr]);
+    }
+
+    // ── Planner commitments for this exact day ─────────────────────────────
+    const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+    const commitmentRows = dbHelpers.queryAll(`
+        SELECT ec.id, ec.description, ec.amount, ec.type,
+               ec.day_of_month, ec.payment_dates, ec.active_months,
+               ec.notes, ec.enabled,
+               c.name AS cat_name, c.icon AS cat_icon, c.color AS cat_color
+        FROM expense_commitments ec
+        LEFT JOIN categories c ON ec.category_id = c.id
+        WHERE ec.enabled = 1
+    `);
+
+    const dayCommitments = [];
+    commitmentRows.forEach(r => {
+        const c = {
+            id: r[0], description: r[1], amount: r[2], type: r[3],
+            day_of_month: r[4], payment_dates: r[5], active_months: r[6],
+            notes: r[7], enabled: r[8],
+            cat_name: r[9] || 'Uncategorised', cat_icon: r[10] || '📦', cat_color: r[11] || '#9b59b6'
+        };
+        if (commitmentAmountForMonth(c, year, month) === 0) return;
+        if (c.type === 'term' && c.payment_dates) {
+            if (c.payment_dates.split(',').map(d => d.trim()).includes(dateStr)) dayCommitments.push(c);
+        } else if (c.type === 'monthly' && c.day_of_month === day) {
+            dayCommitments.push(c);
+        }
+    });
+
+    // ── Build panel HTML ───────────────────────────────────────────────────
+    let html = '';
+    html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">`;
+    html += `<h5 style="margin:0; color:#2c3e50; font-size:14px;">${escapeHtml(dateLabel)}</h5>`;
+    html += `<button class="secondary-btn" style="padding:3px 10px; font-size:12px;" onclick="closePlannerDayDetail()">✕ Close</button>`;
+    html += `</div>`;
+
+    if (!txRows.length && !manualRows.length && !dayCommitments.length) {
+        html += `<div style="color:#95a5a6; font-size:13px; font-style:italic; text-align:center; padding:16px 0;">No transactions or commitments for this day.</div>`;
+    }
+
+    // Bank transactions section
+    if (txRows.length) {
+        const totalSpend  = txRows.filter(r => r[1] < 0).reduce((s, r) => s + Math.abs(r[1]), 0);
+        const totalIncome = txRows.filter(r => r[1] > 0).reduce((s, r) => s + r[1], 0);
+        html += `<div style="margin-bottom:14px;">`;
+        html += `<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">`;
+        html += `<span style="font-size:11px; font-weight:700; color:#3498db; text-transform:uppercase; letter-spacing:0.5px;">🏦 Bank Transactions (${txRows.length})</span>`;
+        html += `<span style="font-size:12px;">`;
+        if (totalSpend  > 0) html += `<span style="color:#e74c3c;">-S$${totalSpend.toFixed(2)}</span> `;
+        if (totalIncome > 0) html += `<span style="color:#27ae60;">+S$${totalIncome.toFixed(2)}</span>`;
+        html += `</span></div>`;
+        txRows.forEach(([desc, amount, catName, catIcon, catColor, subcatName]) => {
+            const isSpend = amount < 0;
+            html += `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; background:#f8f9fa; border-radius:4px; margin-bottom:3px; border-left:3px solid ${catColor || '#95a5a6'};">`;
+            html += `<div style="flex:1; min-width:0; margin-right:8px;">`;
+            html += `<div style="font-size:12px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(desc)}</div>`;
+            html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(catIcon || '📦')} ${escapeHtml(catName || 'Uncategorised')}${subcatName ? ` › ${escapeHtml(subcatName)}` : ''}</div>`;
+            html += `</div>`;
+            html += `<span style="font-size:13px; font-weight:700; color:${isSpend ? '#e74c3c' : '#27ae60'}; white-space:nowrap;">${isSpend ? '-' : '+'}S$${Math.abs(amount).toFixed(2)}</span>`;
+            html += `</div>`;
+        });
+        html += `</div>`;
+    }
+
+    // Manual transactions section
+    if (manualRows.length) {
+        const totalSpend = manualRows.filter(r => r[1] < 0).reduce((s, r) => s + Math.abs(r[1]), 0);
+        html += `<div style="margin-bottom:14px;">`;
+        html += `<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">`;
+        html += `<span style="font-size:11px; font-weight:700; color:#e67e22; text-transform:uppercase; letter-spacing:0.5px;">✏️ Manual Transactions (${manualRows.length})</span>`;
+        if (totalSpend > 0) html += `<span style="font-size:12px; color:#e74c3c;">-S$${totalSpend.toFixed(2)}</span>`;
+        html += `</div>`;
+        manualRows.forEach(([desc, amount, catName, catIcon, catColor, subcatName]) => {
+            const isSpend = amount < 0;
+            html += `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; background:#fff8f0; border-radius:4px; margin-bottom:3px; border-left:3px solid #e67e22;">`;
+            html += `<div style="flex:1; min-width:0; margin-right:8px;">`;
+            html += `<div style="font-size:12px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(desc)}</div>`;
+            html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(catIcon || '📦')} ${escapeHtml(catName || 'Uncategorised')}${subcatName ? ` › ${escapeHtml(subcatName)}` : ''}</div>`;
+            html += `</div>`;
+            html += `<span style="font-size:13px; font-weight:700; color:${isSpend ? '#e74c3c' : '#27ae60'}; white-space:nowrap;">${isSpend ? '-' : '+'}S$${Math.abs(amount).toFixed(2)}</span>`;
+            html += `</div>`;
+        });
+        html += `</div>`;
+    }
+
+    // Expected commitments section
+    if (dayCommitments.length) {
+        const total = dayCommitments.reduce((s, c) => s + c.amount, 0);
+        html += `<div style="margin-bottom:14px;">`;
+        html += `<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">`;
+        html += `<span style="font-size:11px; font-weight:700; color:#9b59b6; text-transform:uppercase; letter-spacing:0.5px;">📅 Expected Commitments (${dayCommitments.length})</span>`;
+        html += `<span style="font-size:12px; color:#9b59b6; font-weight:600;">S$${total.toFixed(2)}</span>`;
+        html += `</div>`;
+        dayCommitments.forEach(c => {
+            html += `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; background:#f9f0ff; border-radius:4px; margin-bottom:3px; border-left:3px solid #9b59b6;">`;
+            html += `<div style="flex:1; min-width:0; margin-right:8px;">`;
+            html += `<div style="font-size:12px; font-weight:500;">${escapeHtml(c.description)}</div>`;
+            html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(c.cat_icon)} ${escapeHtml(c.cat_name)}${c.notes ? ` · ${escapeHtml(c.notes)}` : ''}</div>`;
+            html += `</div>`;
+            html += `<span style="font-size:13px; font-weight:700; color:#9b59b6; white-space:nowrap;">S$${c.amount.toFixed(2)}</span>`;
+            html += `</div>`;
+        });
+        html += `</div>`;
+    }
+
+    panel.innerHTML = html;
+    panel.style.display = 'block';
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closePlannerDayDetail() {
+    const panel = document.getElementById('plannerDayDetail');
+    if (panel) panel.style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // APPLICATION BOOTSTRAP
 // ═══════════════════════════════════════════════════════════════════════════
 

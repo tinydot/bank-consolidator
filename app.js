@@ -4739,6 +4739,34 @@ function plannerMonths() {
     return result;
 }
 
+// Count Mon–Fri days in a given month
+function countWorkdaysInMonth(year, month) {
+    const days = new Date(year, month, 0).getDate();
+    let n = 0;
+    for (let d = 1; d <= days; d++) {
+        const dow = new Date(year, month - 1, d).getDay(); // 0=Sun
+        if (dow >= 1 && dow <= 5) n++;
+    }
+    return n;
+}
+
+// Count Sat–Sun days in a given month
+function countNonWorkdaysInMonth(year, month) {
+    const days = new Date(year, month, 0).getDate();
+    let n = 0;
+    for (let d = 1; d <= days; d++) {
+        const dow = new Date(year, month - 1, d).getDay();
+        if (dow === 0 || dow === 6) n++;
+    }
+    return n;
+}
+
+// Returns true if dateStr (YYYY-MM-DD) is a Mon–Fri
+function isWorkday(dateStr) {
+    const dow = new Date(dateStr).getDay();
+    return dow >= 1 && dow <= 5;
+}
+
 function commitmentAmountForMonth(commitment, year, month) {
     // Returns the amount due in a given year/month, or 0
     if (!commitment.enabled) return 0;
@@ -4758,6 +4786,14 @@ function commitmentAmountForMonth(commitment, year, month) {
         const dates = commitment.payment_dates.split(',').map(d => d.trim());
         const hit = dates.some(d => d.startsWith(monthKey));
         return hit ? commitment.amount : 0;
+    }
+
+    if (commitment.type === 'workday') {
+        return commitment.amount * countWorkdaysInMonth(year, month);
+    }
+
+    if (commitment.type === 'nonworkday') {
+        return commitment.amount * countNonWorkdaysInMonth(year, month);
     }
 
     return 0;
@@ -4883,11 +4919,18 @@ function renderPlannerTable(commitments, variableSpend) {
 
         const tdName = document.createElement('td');
         tdName.style.cssText = 'padding:8px 14px 8px 28px; border-bottom:1px solid #f0f0f0;';
-        const typeTag = c.type === 'term'
-            ? '<span style="font-size:10px; background:#9b59b620; color:#9b59b6; padding:1px 5px; border-radius:3px; margin-left:4px;">term</span>'
+        const typeTags = {
+            term:       '<span style="font-size:10px; background:#9b59b620; color:#9b59b6;  padding:1px 5px; border-radius:3px; margin-left:4px;">term</span>',
+            workday:    '<span style="font-size:10px; background:#16a08520; color:#16a085;  padding:1px 5px; border-radius:3px; margin-left:4px;">workday</span>',
+            nonworkday: '<span style="font-size:10px; background:#d3540020; color:#d35400;  padding:1px 5px; border-radius:3px; margin-left:4px;">weekend</span>',
+        };
+        const typeTag = typeTags[c.type] || '';
+        const perDayHint = (c.type === 'workday' || c.type === 'nonworkday')
+            ? `<div style="font-size:11px; color:#95a5a6;">S$${c.amount.toFixed(2)} / day</div>`
             : '';
         tdName.innerHTML = `
             <div style="font-weight:500; font-size:13px;">${escapeHtml(c.description)}${typeTag}</div>
+            ${perDayHint}
             ${c.subcat_name ? `<div style="font-size:11px; color:#95a5a6;">${escapeHtml(c.subcat_name)}</div>` : ''}
             ${c.notes ? `<div style="font-size:11px; color:#bdc3c7; font-style:italic;">${escapeHtml(c.notes)}</div>` : ''}
         `;
@@ -5140,8 +5183,16 @@ function editCommitment(c) {
 
 function togglePlannerTypeFields() {
     const type = document.getElementById('plannerType').value;
-    document.getElementById('plannerMonthsField').style.display = type === 'monthly' ? '' : 'none';
-    document.getElementById('plannerDatesField').style.display  = type === 'term'    ? '' : 'none';
+    document.getElementById('plannerMonthsField').style.display = type === 'monthly'    ? '' : 'none';
+    document.getElementById('plannerDatesField').style.display  = type === 'term'       ? '' : 'none';
+    const amtLabels = {
+        monthly:    'Amount (SGD)',
+        term:       'Amount (SGD)',
+        workday:    'Daily amount (SGD / workday)',
+        nonworkday: 'Daily amount (SGD / non-workday)',
+    };
+    const lbl = document.getElementById('plannerAmountLabel');
+    if (lbl) lbl.textContent = amtLabels[type] || 'Amount (SGD)';
 }
 
 function populatePlannerCategoryDropdown(selectedCatId, selectedSubcatId) {
@@ -5907,10 +5958,12 @@ function renderMonthView() {
     }));
 
     // ── Index by day ───────────────────────────────────────────────────────
-    const txByDay          = {};
-    const manualByDay      = {};
-    const commitmentsByDay = {};
-    const monthlyNoDay     = []; // monthly commitments without a specific day
+    const txByDay             = {};
+    const manualByDay         = {};
+    const commitmentsByDay    = {};
+    const monthlyNoDay        = []; // monthly commitments without a specific day
+    const workdayCommitments  = []; // apply to every Mon–Fri
+    const nonwkdCommitments   = []; // apply to every Sat–Sun
 
     txRows.forEach(([date, desc, amount, catName, catIcon, catColor]) => {
         const day = parseInt(date.split('-')[2]);
@@ -5943,6 +5996,10 @@ function renderMonthView() {
             } else {
                 monthlyNoDay.push(c);
             }
+        } else if (c.type === 'workday') {
+            workdayCommitments.push(c);
+        } else if (c.type === 'nonworkday') {
+            nonwkdCommitments.push(c);
         }
     });
 
@@ -5956,24 +6013,30 @@ function renderMonthView() {
 
     let html = '';
 
-    // ── Monthly commitments banner (no specific day) ───────────────────────
-    if (monthlyNoDay.length > 0) {
-        const bannerTotal = monthlyNoDay.reduce((s, c) => s + commitmentAmountForMonth(c, year, month), 0);
-        html += `<div style="background:#f3eeff; border:1px solid #9b59b630; border-radius:8px; padding:12px 16px; margin-bottom:16px;">`;
-        html += `<div style="font-size:11px; font-weight:700; color:#9b59b6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">📅 Monthly Commitments — no specific date</div>`;
-        html += `<div style="display:flex; flex-wrap:wrap; gap:8px;">`;
-        monthlyNoDay.forEach(c => {
-            html += `<div style="background:white; border:1px solid #9b59b620; border-radius:6px; padding:6px 10px; font-size:12px; display:flex; align-items:center; gap:6px;">`;
-            html += `<span style="font-size:14px;">${escapeHtml(c.cat_icon)}</span>`;
-            html += `<div><div style="font-weight:600; color:#2c3e50;">${escapeHtml(c.description)}</div>`;
-            html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(c.cat_name)}</div></div>`;
-            html += `<span style="color:#9b59b6; font-weight:700; margin-left:4px;">S$${commitmentAmountForMonth(c, year, month).toFixed(2)}</span>`;
-            html += `</div>`;
+    // ── Summary banners for undated commitments ────────────────────────────
+    function makeBanner(items, accentColor, icon, titleText) {
+        const total = items.reduce((s, c) => s + commitmentAmountForMonth(c, year, month), 0);
+        let b = `<div style="background:${accentColor}10; border:1px solid ${accentColor}30; border-radius:8px; padding:12px 16px; margin-bottom:12px;">`;
+        b += `<div style="font-size:11px; font-weight:700; color:${accentColor}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">${icon} ${escapeHtml(titleText)}</div>`;
+        b += `<div style="display:flex; flex-wrap:wrap; gap:8px;">`;
+        items.forEach(c => {
+            const monthAmt = commitmentAmountForMonth(c, year, month);
+            b += `<div style="background:white; border:1px solid ${accentColor}20; border-radius:6px; padding:6px 10px; font-size:12px; display:flex; align-items:center; gap:6px;">`;
+            b += `<span style="font-size:14px;">${escapeHtml(c.cat_icon)}</span>`;
+            b += `<div><div style="font-weight:600; color:#2c3e50;">${escapeHtml(c.description)}</div>`;
+            b += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(c.cat_name)}</div></div>`;
+            b += `<span style="color:${accentColor}; font-weight:700; margin-left:4px;">S$${monthAmt.toFixed(2)}</span>`;
+            b += `</div>`;
         });
-        html += `</div>`;
-        html += `<div style="margin-top:8px; font-size:12px; color:#7f8c8d;">Total this month: <strong style="color:#9b59b6;">S$${bannerTotal.toFixed(2)}</strong></div>`;
-        html += `</div>`;
+        b += `</div>`;
+        b += `<div style="margin-top:8px; font-size:12px; color:#7f8c8d;">Total this month: <strong style="color:${accentColor};">S$${total.toFixed(2)}</strong></div>`;
+        b += `</div>`;
+        return b;
     }
+
+    if (monthlyNoDay.length > 0)       html += makeBanner(monthlyNoDay,       '#9b59b6', '📅', 'Monthly Commitments — no specific date');
+    if (workdayCommitments.length > 0) html += makeBanner(workdayCommitments, '#16a085', '💼', `Workday Costs — ${countWorkdaysInMonth(year, month)} workdays this month`);
+    if (nonwkdCommitments.length > 0)  html += makeBanner(nonwkdCommitments,  '#d35400', '🏖️', `Non-workday Costs — ${countNonWorkdaysInMonth(year, month)} non-workdays this month`);
 
     // ── Calendar grid ──────────────────────────────────────────────────────
     html += `<div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:1px; background:#dee2e6; border-radius:8px; overflow:hidden;">`;
@@ -6000,6 +6063,9 @@ function renderMonthView() {
         const dayTx          = txByDay[day]          || [];
         const dayManual      = manualByDay[day]      || [];
         const dayCommitments = commitmentsByDay[day] || [];
+        // Workday/nonworkday commitments apply to every applicable day
+        const dayWorkday     = isWeekend ? [] : workdayCommitments;
+        const dayNonwkd      = isWeekend ? nonwkdCommitments : [];
 
         const bg = isToday ? '#fff9c4' : (isWeekend ? '#fdf8f0' : 'white');
 
@@ -6045,6 +6111,22 @@ function renderMonthView() {
             if (dayCommitments.length > 2) {
                 html += `<div style="font-size:9px; color:#9b59b6; text-align:right;">+${dayCommitments.length - 2} more</div>`;
             }
+        }
+
+        // Workday badges (Mon–Fri)
+        if (dayWorkday.length) {
+            const wdTotal = dayWorkday.reduce((s, c) => s + c.amount, 0);
+            html += `<div style="background:#e8f8f5; border-left:3px solid #16a085; border-radius:2px; padding:2px 4px; margin-bottom:2px; font-size:10px; white-space:nowrap; overflow:hidden;">`;
+            html += `<span style="color:#16a085; font-weight:600;">💼 S$${wdTotal.toFixed(0)}</span>`;
+            html += `</div>`;
+        }
+
+        // Non-workday badges (Sat–Sun)
+        if (dayNonwkd.length) {
+            const nwTotal = dayNonwkd.reduce((s, c) => s + c.amount, 0);
+            html += `<div style="background:#fef0e7; border-left:3px solid #d35400; border-radius:2px; padding:2px 4px; margin-bottom:2px; font-size:10px; white-space:nowrap; overflow:hidden;">`;
+            html += `<span style="color:#d35400; font-weight:600;">🏖️ S$${nwTotal.toFixed(0)}</span>`;
+            html += `</div>`;
         }
 
         html += `</div>`;
@@ -6113,7 +6195,14 @@ function showPlannerDayDetail(dateStr) {
         WHERE ec.enabled = 1
     `);
 
-    const dayCommitments = [];
+    // Determine if this date is a workday (Mon–Fri) or non-workday (Sat–Sun)
+    const dowForDetail = new Date(dateStr).getDay(); // 0=Sun, 6=Sat
+    const isWorkdayDate = dowForDetail >= 1 && dowForDetail <= 5;
+
+    const dayCommitments  = [];
+    const dayWorkdayItems = [];
+    const dayNonwkdItems  = [];
+
     commitmentRows.forEach(r => {
         const c = {
             id: r[0], description: r[1], amount: r[2], type: r[3],
@@ -6126,6 +6215,10 @@ function showPlannerDayDetail(dateStr) {
             if (c.payment_dates.split(',').map(d => d.trim()).includes(dateStr)) dayCommitments.push(c);
         } else if (c.type === 'monthly' && c.day_of_month === day) {
             dayCommitments.push(c);
+        } else if (c.type === 'workday' && isWorkdayDate) {
+            dayWorkdayItems.push(c);
+        } else if (c.type === 'nonworkday' && !isWorkdayDate) {
+            dayNonwkdItems.push(c);
         }
     });
 
@@ -6136,7 +6229,7 @@ function showPlannerDayDetail(dateStr) {
     html += `<button class="secondary-btn" style="padding:3px 10px; font-size:12px;" onclick="closePlannerDayDetail()">✕ Close</button>`;
     html += `</div>`;
 
-    if (!txRows.length && !manualRows.length && !dayCommitments.length) {
+    if (!txRows.length && !manualRows.length && !dayCommitments.length && !dayWorkdayItems.length && !dayNonwkdItems.length) {
         html += `<div style="color:#95a5a6; font-size:13px; font-style:italic; text-align:center; padding:16px 0;">No transactions or commitments for this day.</div>`;
     }
 
@@ -6185,7 +6278,7 @@ function showPlannerDayDetail(dateStr) {
         html += `</div>`;
     }
 
-    // Expected commitments section
+    // Expected commitments section (term/dated + monthly with specific day)
     if (dayCommitments.length) {
         const total = dayCommitments.reduce((s, c) => s + c.amount, 0);
         html += `<div style="margin-bottom:14px;">`;
@@ -6200,6 +6293,46 @@ function showPlannerDayDetail(dateStr) {
             html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(c.cat_icon)} ${escapeHtml(c.cat_name)}${c.notes ? ` · ${escapeHtml(c.notes)}` : ''}</div>`;
             html += `</div>`;
             html += `<span style="font-size:13px; font-weight:700; color:#9b59b6; white-space:nowrap;">S$${c.amount.toFixed(2)}</span>`;
+            html += `</div>`;
+        });
+        html += `</div>`;
+    }
+
+    // Workday expenses section (Mon–Fri only)
+    if (dayWorkdayItems.length) {
+        const total = dayWorkdayItems.reduce((s, c) => s + c.amount, 0);
+        html += `<div style="margin-bottom:14px;">`;
+        html += `<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">`;
+        html += `<span style="font-size:11px; font-weight:700; color:#16a085; text-transform:uppercase; letter-spacing:0.5px;">💼 Workday Costs (${dayWorkdayItems.length})</span>`;
+        html += `<span style="font-size:12px; color:#16a085; font-weight:600;">S$${total.toFixed(2)}</span>`;
+        html += `</div>`;
+        dayWorkdayItems.forEach(c => {
+            html += `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; background:#e8f8f5; border-radius:4px; margin-bottom:3px; border-left:3px solid #16a085;">`;
+            html += `<div style="flex:1; min-width:0; margin-right:8px;">`;
+            html += `<div style="font-size:12px; font-weight:500;">${escapeHtml(c.description)}</div>`;
+            html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(c.cat_icon)} ${escapeHtml(c.cat_name)}${c.notes ? ` · ${escapeHtml(c.notes)}` : ''}</div>`;
+            html += `</div>`;
+            html += `<span style="font-size:13px; font-weight:700; color:#16a085; white-space:nowrap;">S$${c.amount.toFixed(2)}</span>`;
+            html += `</div>`;
+        });
+        html += `</div>`;
+    }
+
+    // Non-workday expenses section (Sat–Sun only)
+    if (dayNonwkdItems.length) {
+        const total = dayNonwkdItems.reduce((s, c) => s + c.amount, 0);
+        html += `<div style="margin-bottom:14px;">`;
+        html += `<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">`;
+        html += `<span style="font-size:11px; font-weight:700; color:#d35400; text-transform:uppercase; letter-spacing:0.5px;">🏖️ Non-workday Costs (${dayNonwkdItems.length})</span>`;
+        html += `<span style="font-size:12px; color:#d35400; font-weight:600;">S$${total.toFixed(2)}</span>`;
+        html += `</div>`;
+        dayNonwkdItems.forEach(c => {
+            html += `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; background:#fef0e7; border-radius:4px; margin-bottom:3px; border-left:3px solid #d35400;">`;
+            html += `<div style="flex:1; min-width:0; margin-right:8px;">`;
+            html += `<div style="font-size:12px; font-weight:500;">${escapeHtml(c.description)}</div>`;
+            html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(c.cat_icon)} ${escapeHtml(c.cat_name)}${c.notes ? ` · ${escapeHtml(c.notes)}` : ''}</div>`;
+            html += `</div>`;
+            html += `<span style="font-size:13px; font-weight:700; color:#d35400; white-space:nowrap;">S$${c.amount.toFixed(2)}</span>`;
             html += `</div>`;
         });
         html += `</div>`;

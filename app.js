@@ -5288,6 +5288,7 @@ async function deleteCommitment(id) {
     if (!confirm('Remove this expense commitment?')) return;
     dbHelpers.safeRun('DELETE FROM expense_commitments WHERE id = ?', [id], 'Delete commitment');
     markDirty();
+    closePlannerDayDetail();
     await loadPlanner();
 }
 
@@ -6293,7 +6294,11 @@ function showPlannerDayDetail(dateStr) {
             html += `<div style="font-size:12px; font-weight:500;">${escapeHtml(c.description)}</div>`;
             html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(c.cat_icon)} ${escapeHtml(c.cat_name)}${c.notes ? ` · ${escapeHtml(c.notes)}` : ''}</div>`;
             html += `</div>`;
-            html += `<span style="font-size:13px; font-weight:700; color:#9b59b6; white-space:nowrap;">S$${c.amount.toFixed(2)}</span>`;
+            html += `<div style="display:flex; align-items:center; gap:6px; white-space:nowrap;">`;
+            html += `<span style="font-size:13px; font-weight:700; color:#9b59b6;">S$${c.amount.toFixed(2)}</span>`;
+            html += `<button class="secondary-btn" style="padding:2px 7px; font-size:11px;" onclick="openEditCommitment(${c.id})">Edit</button>`;
+            html += `<button class="danger-btn" style="padding:2px 7px; font-size:11px;" onclick="deleteCommitment(${c.id})">Del</button>`;
+            html += `</div>`;
             html += `</div>`;
         });
         html += `</div>`;
@@ -6313,7 +6318,11 @@ function showPlannerDayDetail(dateStr) {
             html += `<div style="font-size:12px; font-weight:500;">${escapeHtml(c.description)}</div>`;
             html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(c.cat_icon)} ${escapeHtml(c.cat_name)}${c.notes ? ` · ${escapeHtml(c.notes)}` : ''}</div>`;
             html += `</div>`;
-            html += `<span style="font-size:13px; font-weight:700; color:#16a085; white-space:nowrap;">S$${c.amount.toFixed(2)}</span>`;
+            html += `<div style="display:flex; align-items:center; gap:6px; white-space:nowrap;">`;
+            html += `<span style="font-size:13px; font-weight:700; color:#16a085;">S$${c.amount.toFixed(2)}</span>`;
+            html += `<button class="secondary-btn" style="padding:2px 7px; font-size:11px;" onclick="openEditCommitment(${c.id})">Edit</button>`;
+            html += `<button class="danger-btn" style="padding:2px 7px; font-size:11px;" onclick="deleteCommitment(${c.id})">Del</button>`;
+            html += `</div>`;
             html += `</div>`;
         });
         html += `</div>`;
@@ -6333,7 +6342,11 @@ function showPlannerDayDetail(dateStr) {
             html += `<div style="font-size:12px; font-weight:500;">${escapeHtml(c.description)}</div>`;
             html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(c.cat_icon)} ${escapeHtml(c.cat_name)}${c.notes ? ` · ${escapeHtml(c.notes)}` : ''}</div>`;
             html += `</div>`;
-            html += `<span style="font-size:13px; font-weight:700; color:#d35400; white-space:nowrap;">S$${c.amount.toFixed(2)}</span>`;
+            html += `<div style="display:flex; align-items:center; gap:6px; white-space:nowrap;">`;
+            html += `<span style="font-size:13px; font-weight:700; color:#d35400;">S$${c.amount.toFixed(2)}</span>`;
+            html += `<button class="secondary-btn" style="padding:2px 7px; font-size:11px;" onclick="openEditCommitment(${c.id})">Edit</button>`;
+            html += `<button class="danger-btn" style="padding:2px 7px; font-size:11px;" onclick="deleteCommitment(${c.id})">Del</button>`;
+            html += `</div>`;
             html += `</div>`;
         });
         html += `</div>`;

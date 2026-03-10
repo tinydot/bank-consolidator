@@ -4833,6 +4833,7 @@ async function loadPlanner() {
     renderPlannerTable(commitments, variableSpend);
     loadFinancialHealth();
     loadActivities();
+    if (monthViewYear) renderMonthView();
 }
 
 function renderPlannerTable(commitments, variableSpend) {

@@ -4489,7 +4489,35 @@ async function loadBudget() {
         ? 'Set a monthly spending limit per category. Leave blank for no limit.'
         : `Showing actual spend for ${monthLabel} vs your current budget limits.`;
 
+    // Check if manual transactions should be included (same setting as analytics)
+    const includeManual = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'include_manual_in_analytics'") === '1';
+    const manualStartDate = includeManual ? dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'manual_analytics_start_date'") : null;
+
     // Fetch all categories with their saved budget limit and selected month spend
+    let spentSubquery, queryParams;
+    if (includeManual && manualStartDate) {
+        spentSubquery = `(SELECT ABS(SUM(amt))
+                 FROM (
+                     SELECT amount AS amt FROM transactions
+                     WHERE category_id = c.id AND ignored = 0 AND amount < 0
+                       AND strftime('%Y-%m', date) = ?
+                     UNION ALL
+                     SELECT amount AS amt FROM manual_transactions
+                     WHERE category_id = c.id AND amount < 0
+                       AND date >= ?
+                       AND strftime('%Y-%m', date) = ?
+                 ))`;
+        queryParams = [budgetMonth, manualStartDate, budgetMonth];
+    } else {
+        spentSubquery = `(SELECT ABS(SUM(t.amount))
+                 FROM transactions t
+                 WHERE t.category_id = c.id
+                   AND t.ignored = 0
+                   AND t.amount < 0
+                   AND strftime('%Y-%m', t.date) = ?)`;
+        queryParams = [budgetMonth];
+    }
+
     const rows = dbHelpers.queryAll(`
         SELECT
             c.id,
@@ -4497,19 +4525,11 @@ async function loadBudget() {
             c.icon,
             c.color,
             COALESCE(b.monthly_limit, '') as monthly_limit,
-            COALESCE(
-                (SELECT ABS(SUM(t.amount))
-                 FROM transactions t
-                 WHERE t.category_id = c.id
-                   AND t.ignored = 0
-                   AND t.amount < 0
-                   AND strftime('%Y-%m', t.date) = ?
-                ), 0
-            ) as spent
+            COALESCE(${spentSubquery}, 0) as spent
         FROM categories c
         LEFT JOIN budget b ON b.category_id = c.id
         ORDER BY c.sort_order, c.name
-    `, [budgetMonth]);
+    `, queryParams);
 
     if (!rows.length) {
         container.innerHTML = '<div class="loading">No categories found. Add categories in Settings first.</div>';

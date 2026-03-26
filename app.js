@@ -768,6 +768,8 @@ function updateAccountOptions() {
             const displayName = accountNumber ? `${accountName} (...${accountNumber})` : accountName;
             select.innerHTML += `<option value="${accountId}">${displayName}</option>`;
         });
+        // Auto-select the first account
+        select.value = accountsResult[0].values[0][0];
     }
 }
 

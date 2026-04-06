@@ -2445,13 +2445,13 @@ function renderCategoryDetailTags() {
         const header = document.createElement('div');
         header.style.cssText = `display:flex; align-items:center; justify-content:space-between; padding:12px 16px; background:${cat.color}15; cursor:pointer; user-select:none;`;
 
-        let amountDisplay = `<div style="font-weight:600; color:${cat.color};">$${total.toFixed(2)}</div>`;
+        let amountDisplay = `<div style="font-weight:600; color:#222;">$${total.toFixed(2)}</div>`;
         if (cat.budget) {
-            const budgetColor = total > cat.budget ? '#e74c3c' : '#27ae60';
+            const overBudget = total > cat.budget;
             amountDisplay = `
                 <div style="text-align:right;">
-                    <div style="font-weight:600; color:${cat.color};">$${total.toFixed(2)}</div>
-                    <div style="font-size:11px; color:${budgetColor};">Budget: $${cat.budget.toFixed(2)}</div>
+                    <div style="font-weight:600; color:${overBudget ? '#e74c3c' : '#222'};">$${total.toFixed(2)}</div>
+                    <div style="font-size:11px; color:${overBudget ? '#e74c3c' : '#27ae60'};">Budget: $${cat.budget.toFixed(2)}</div>
                 </div>
             `;
         }
@@ -3098,7 +3098,7 @@ function rpt_analytics(stats, monthlyRows, catRows) {
     const catTableRows = allCats.map(([cat, {icon, color}]) => {
         const cells = allMonths.map(m => {
             const v = catData[`${cat}||${m}`] || 0;
-            return `<td class="r">${v > 0 ? `<span style="color:${rpt_esc(color)};font-weight:600;">${rpt_fmt(v)}</span>` : '<span style="color:#e0e0e0;">—</span>'}</td>`;
+            return `<td class="r">${v > 0 ? `<span style="font-weight:600;">${rpt_fmt(v)}</span>` : '<span style="color:#e0e0e0;">—</span>'}</td>`;
         }).join('');
         const rowTotal = allMonths.reduce((s, m) => s + (catData[`${cat}||${m}`] || 0), 0);
         return `<tr>

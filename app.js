@@ -567,7 +567,7 @@ function setupEventListeners() {
     });
 }
 
-function handleFiles(files) {
+async function handleFiles(files) {
     uploadedFiles = Array.from(files).filter(f => f.name.endsWith('.csv'));
 
     if (uploadedFiles.length === 0) {

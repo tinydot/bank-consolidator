@@ -2448,10 +2448,13 @@ function renderCategoryDetailTags() {
         let amountDisplay = `<div style="font-weight:600; color:#222;">$${total.toFixed(2)}</div>`;
         if (cat.budget) {
             const overBudget = total > cat.budget;
+            const diff = Math.abs(cat.budget - total).toFixed(2);
+            const diffLabel = overBudget ? `$${diff} over` : `$${diff} left`;
             amountDisplay = `
                 <div style="text-align:right;">
                     <div style="font-weight:600; color:${overBudget ? '#e74c3c' : '#222'};">$${total.toFixed(2)}</div>
-                    <div style="font-size:11px; color:${overBudget ? '#e74c3c' : '#27ae60'};">Budget: $${cat.budget.toFixed(2)}</div>
+                    <div style="font-size:11px; color:#95a5a6;">Budget: $${cat.budget.toFixed(2)}</div>
+                    <div style="font-size:11px; color:${overBudget ? '#e74c3c' : '#27ae60'}; font-weight:500;">${diffLabel}</div>
                 </div>
             `;
         }

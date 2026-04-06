@@ -50,6 +50,8 @@ let uploadedFiles = [];
 let bankProfiles = [];
 let categoryChart = null;
 let currentPage = 0;
+let previewTransactions = []; // parsed rows waiting to be imported
+let _showDuplicates = false;  // toggle state for hidden duplicate rows
 let budgetMonth = new Date().toISOString().slice(0, 7); // YYYY-MM, current month
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -657,6 +659,8 @@ async function autoDetectBankAccount(file) {
 
 function resetFileSelection() {
     uploadedFiles = [];
+    previewTransactions = [];
+    _showDuplicates = false;
     document.getElementById('fileInput').value = '';
     document.getElementById('dropZone').style.display = 'block';
 
@@ -700,94 +704,210 @@ async function updateImportPreview(syncFormat) {
     const profileIdx = document.getElementById('bankProfileSelect').value;
     const profile = bankProfiles[profileIdx];
     const dateFormat = document.getElementById('importDateFormat').value;
+    const accountId = document.getElementById('accountSelect').value;
+    const effectiveDateFormat = dateFormat || profile.dateFormat || 'auto';
 
-    // Parse first file only for preview
-    const file = uploadedFiles[0];
-    const text = await file.text();
-    let processedText = text;
-    if (profile.skipRows && profile.skipRows > 0) {
-        const lines = text.split('\n');
-        processedText = lines.slice(profile.skipRows).join('\n');
+    // Get latest stored transaction date for this account (for duplicate detection)
+    let latestStoredDate = null;
+    if (accountId) {
+        latestStoredDate = dbHelpers.queryValue(`
+            SELECT MAX(t.date) FROM transactions t
+            JOIN imports i ON t.import_id = i.id
+            WHERE i.account_id = ?
+        `, [accountId]);
     }
 
-    const result = Papa.parse(processedText, {
-        header: profile.hasHeader !== false,
-        skipEmptyLines: true
-    });
+    // Parse all rows from all uploaded files
+    previewTransactions = [];
+    _showDuplicates = false;
+    let parseErrors = 0;
 
-    const rows = result.data.slice(0, 5);
-    if (!rows.length) {
-        container.innerHTML = '<p style="color:#7f8c8d;">No rows found in file.</p>';
+    for (let fileIdx = 0; fileIdx < uploadedFiles.length; fileIdx++) {
+        const file = uploadedFiles[fileIdx];
+        const text = await file.text();
+        let processedText = text;
+        if (profile.skipRows && profile.skipRows > 0) {
+            const lines = text.split('\n');
+            processedText = lines.slice(profile.skipRows).join('\n');
+        }
+
+        const result = Papa.parse(processedText, {
+            header: profile.hasHeader !== false,
+            skipEmptyLines: true
+        });
+
+        for (const row of result.data) {
+            let rawDate, description, amount;
+
+            if (profile.hasHeader !== false) {
+                rawDate = row[profile.dateColumn] || '';
+                description = profile.descriptionColumn.includes(',')
+                    ? profile.descriptionColumn.split(',').map(c => row[c.trim()]).filter(Boolean).join(' ')
+                    : row[profile.descriptionColumn] || '';
+                if (profile.creditColumn && profile.debitColumn) {
+                    amount = parseAmount(row[profile.creditColumn]) - parseAmount(row[profile.debitColumn]);
+                } else {
+                    const raw = row[profile.amountColumn];
+                    if (raw === undefined || raw === null || String(raw).trim() === '') continue;
+                    amount = parseAmount(raw);
+                }
+            } else {
+                rawDate = row[parseInt(profile.dateColumn)] || '';
+                description = profile.descriptionColumn.includes(',')
+                    ? profile.descriptionColumn.split(',').map(c => row[parseInt(c.trim())]).filter(Boolean).join(' ')
+                    : row[parseInt(profile.descriptionColumn)] || '';
+                if (profile.creditColumn && profile.debitColumn) {
+                    amount = parseAmount(row[parseInt(profile.creditColumn)]) - parseAmount(row[parseInt(profile.debitColumn)]);
+                } else {
+                    const raw = row[parseInt(profile.amountColumn)];
+                    if (raw === undefined || raw === null || String(raw).trim() === '') continue;
+                    amount = parseAmount(raw);
+                }
+            }
+
+            if (!rawDate) continue;
+
+            const parsedDate = normalizeDate(rawDate, effectiveDateFormat);
+            if (!parsedDate) parseErrors++;
+
+            // Mark as earlier-than-latest (likely already imported) when account is selected
+            const isDuplicate = !!(latestStoredDate && parsedDate && parsedDate <= latestStoredDate);
+
+            previewTransactions.push({
+                fileIdx,
+                fileName: file.name,
+                rawDate,
+                parsedDate: parsedDate || '',
+                description: description || '',
+                amount,
+                isDuplicate,
+                checked: !isDuplicate
+            });
+        }
+    }
+
+    renderPreviewTable(latestStoredDate, parseErrors);
+}
+
+function renderPreviewTable(latestStoredDate, parseErrors) {
+    const container = document.getElementById('importPreview');
+    const total = previewTransactions.length;
+    const duplicateCount = previewTransactions.filter(t => t.isDuplicate).length;
+    const newCount = total - duplicateCount;
+
+    if (total === 0) {
+        container.innerHTML = '<p style="color:#7f8c8d;">No rows found in file(s).</p>';
+        updateImportButtonLabel();
         return;
     }
 
-    let badDates = 0;
+    const accountId = document.getElementById('accountSelect').value;
+
     let html = `
-        <div style="margin-bottom: 10px;">
-            <strong>Preview</strong>
-            <span style="color:#7f8c8d; font-size:13px; margin-left:8px;">First ${rows.length} row(s) of ${uploadedFiles[0].name}</span>
+        <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <strong>Import Preview</strong>
+            <span style="color:#27ae60; font-size:13px;">${newCount} new</span>
+            ${duplicateCount > 0 ? `<span style="color:#e67e22; font-size:13px;">${duplicateCount} earlier than last import (hidden)</span>` : ''}
+            ${!accountId ? `<span style="color:#7f8c8d; font-size:13px;">(select an account above to detect earlier transactions)</span>` : ''}
         </div>
-        <table>
-            <thead><tr>
-                <th>Raw Date</th>
-                <th>Parsed Date</th>
-                <th>Description</th>
-                <th style="text-align:right;">Amount</th>
-            </tr></thead>
+        <div style="margin-bottom: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <button class="secondary-btn" style="padding:4px 10px; font-size:12px;" onclick="selectAllPreview(true)">Select All</button>
+            <button class="secondary-btn" style="padding:4px 10px; font-size:12px;" onclick="selectAllPreview(false)">Deselect All</button>
+            ${duplicateCount > 0 ? `<button class="secondary-btn" style="padding:4px 10px; font-size:12px;" id="toggleDuplicatesBtn" onclick="togglePreviewDuplicates()">Show Earlier (${duplicateCount})</button>` : ''}
+        </div>
+        <div style="max-height:420px; overflow-y:auto; border:1px solid #e0e0e0; border-radius:6px;">
+        <table style="width:100%; border-collapse:collapse;">
+            <thead style="position:sticky; top:0; background:#f8f9fa; z-index:1;">
+                <tr>
+                    <th style="padding:8px; text-align:center; width:32px; font-weight:600; border-bottom:1px solid #dee2e6;">✓</th>
+                    <th style="padding:8px; text-align:left; font-weight:600; border-bottom:1px solid #dee2e6;">Date</th>
+                    <th style="padding:8px; text-align:left; font-weight:600; border-bottom:1px solid #dee2e6;">Description</th>
+                    <th style="padding:8px; text-align:right; font-weight:600; border-bottom:1px solid #dee2e6;">Amount</th>
+                </tr>
+            </thead>
             <tbody>
     `;
 
-    rows.forEach(row => {
-        let rawDate, description, amount;
+    previewTransactions.forEach((tx, idx) => {
+        const hidden = tx.isDuplicate && !_showDuplicates;
+        const rowStyle = hidden ? 'display:none;' : (tx.isDuplicate ? 'opacity:0.5;' : '');
+        const amtClass = tx.amount >= 0 ? 'transaction-positive' : 'transaction-negative';
+        const amtStr = tx.amount >= 0 ? `+$${tx.amount.toFixed(2)}` : `-$${Math.abs(tx.amount).toFixed(2)}`;
+        const dateInputStyle = tx.parsedDate ? '' : 'border-color:#e74c3c;';
 
-        if (profile.hasHeader !== false) {
-            rawDate = row[profile.dateColumn] || '';
-            description = profile.descriptionColumn.includes(',')
-                ? profile.descriptionColumn.split(',').map(c => row[c.trim()]).filter(Boolean).join(' ')
-                : row[profile.descriptionColumn] || '';
-            if (profile.creditColumn && profile.debitColumn) {
-                amount = parseAmount(row[profile.creditColumn]) - parseAmount(row[profile.debitColumn]);
-            } else {
-                amount = parseAmount(row[profile.amountColumn]);
-            }
-        } else {
-            rawDate = row[parseInt(profile.dateColumn)] || '';
-            description = profile.descriptionColumn.includes(',')
-                ? profile.descriptionColumn.split(',').map(c => row[parseInt(c.trim())]).filter(Boolean).join(' ')
-                : row[parseInt(profile.descriptionColumn)] || '';
-            if (profile.creditColumn && profile.debitColumn) {
-                amount = parseAmount(row[parseInt(profile.creditColumn)]) - parseAmount(row[parseInt(profile.debitColumn)]);
-            } else {
-                amount = parseAmount(row[parseInt(profile.amountColumn)]);
-            }
-        }
-
-        const parsed = normalizeDate(rawDate, dateFormat);
-        const dateOk = parsed && parsed !== rawDate;
-        const dateStyle = parsed ? 'color:#27ae60;' : 'color:#e74c3c; font-weight:bold;';
-        const dateDisplay = parsed || '⚠ Invalid';
-        if (!parsed) badDates++;
-
-        const amtClass = amount >= 0 ? 'transaction-positive' : 'transaction-negative';
-        const amtStr = amount >= 0 ? `+$${amount.toFixed(2)}` : `-$${Math.abs(amount).toFixed(2)}`;
-
-        html += `<tr>
-            <td style="font-family:monospace; font-size:13px;">${escapeHtml(rawDate)}</td>
-            <td style="${dateStyle} font-family:monospace; font-size:13px;">${dateDisplay}</td>
-            <td style="font-size:13px;">${escapeHtml(description)}</td>
-            <td class="${amtClass}" style="text-align:right;">${amtStr}</td>
-        </tr>`;
+        html += `
+            <tr id="preview-row-${idx}" style="${rowStyle}" data-is-duplicate="${tx.isDuplicate ? 1 : 0}">
+                <td style="padding:6px 8px; text-align:center; border-bottom:1px solid #f0f0f0;">
+                    <input type="checkbox" id="preview-check-${idx}" ${tx.checked ? 'checked' : ''} onchange="updatePreviewCheck(${idx})">
+                </td>
+                <td style="padding:6px 8px; border-bottom:1px solid #f0f0f0;">
+                    <input type="date" id="preview-date-${idx}" value="${escapeHtml(tx.parsedDate)}"
+                        style="font-family:monospace; font-size:12px; width:135px; ${dateInputStyle}"
+                        onchange="updatePreviewDate(${idx}, this.value)">
+                </td>
+                <td style="padding:6px 8px; font-size:13px; border-bottom:1px solid #f0f0f0;">${escapeHtml(tx.description)}</td>
+                <td class="${amtClass}" style="padding:6px 8px; text-align:right; font-size:13px; border-bottom:1px solid #f0f0f0;">${amtStr}</td>
+            </tr>
+        `;
     });
 
-    html += '</tbody></table>';
+    html += `</tbody></table></div>`;
 
-    if (badDates > 0) {
-        html += `<p style="color:#e74c3c; margin-top:10px; font-size:13px;">⚠ ${badDates} row(s) have unparseable dates — select the correct date format above.</p>`;
-    } else {
-        html += `<p style="color:#27ae60; margin-top:10px; font-size:13px;">✓ All dates parsed successfully.</p>`;
+    if (parseErrors > 0) {
+        html += `<p style="color:#e74c3c; margin-top:8px; font-size:13px;">⚠ ${parseErrors} row(s) have unparseable dates — adjust the date format above.</p>`;
+    }
+    if (latestStoredDate) {
+        html += `<p style="color:#7f8c8d; margin-top:6px; font-size:12px;">Latest stored transaction for this account: ${latestStoredDate}. Transactions on or before this date are hidden by default.</p>`;
     }
 
     container.innerHTML = html;
+    updateImportButtonLabel();
+}
+
+function updatePreviewCheck(idx) {
+    const cb = document.getElementById('preview-check-' + idx);
+    if (previewTransactions[idx]) previewTransactions[idx].checked = cb ? cb.checked : false;
+    updateImportButtonLabel();
+}
+
+function updatePreviewDate(idx, value) {
+    if (previewTransactions[idx]) previewTransactions[idx].parsedDate = value;
+}
+
+function selectAllPreview(select) {
+    previewTransactions.forEach((tx, idx) => {
+        tx.checked = select;
+        const cb = document.getElementById('preview-check-' + idx);
+        if (cb) cb.checked = select;
+    });
+    updateImportButtonLabel();
+}
+
+function togglePreviewDuplicates() {
+    _showDuplicates = !_showDuplicates;
+    previewTransactions.forEach((tx, idx) => {
+        if (!tx.isDuplicate) return;
+        const row = document.getElementById('preview-row-' + idx);
+        if (row) {
+            row.style.display = _showDuplicates ? '' : 'none';
+            if (_showDuplicates) row.style.opacity = '0.5';
+        }
+    });
+    const btn = document.getElementById('toggleDuplicatesBtn');
+    if (btn) {
+        const dupCount = previewTransactions.filter(t => t.isDuplicate).length;
+        btn.textContent = _showDuplicates ? `Hide Earlier (${dupCount})` : `Show Earlier (${dupCount})`;
+    }
+}
+
+function updateImportButtonLabel() {
+    const selectedCount = previewTransactions.filter(t => t.checked).length;
+    const btn = document.querySelector('button[onclick="processUploadedFiles()"]');
+    if (btn) {
+        btn.textContent = selectedCount > 0
+            ? `Import ${selectedCount} Transaction${selectedCount !== 1 ? 's' : ''}`
+            : 'Import Transactions';
+    }
 }
 
 function updateAccountOptions() {
@@ -886,57 +1006,52 @@ async function addAccount() {
 }
 
 async function processUploadedFiles() {
-    const profileIdx = document.getElementById('bankProfileSelect').value;
-    const profile = bankProfiles[profileIdx];
     const accountId = document.getElementById('accountSelect').value;
-    const dateFormat = document.getElementById('importDateFormat').value;
-
-    // Use the dropdown's date format, falling back to the profile's saved format
-    const effectiveDateFormat = dateFormat || profile.dateFormat || 'auto';
 
     if (!accountId) {
         showMessage('error', 'Please select an account');
         return;
     }
 
-    showLoading(`Importing ${uploadedFiles.length} file(s)...`);
+    const selected = previewTransactions.filter(t => t.checked && t.parsedDate);
 
-    let totalImported = 0;
+    if (selected.length === 0) {
+        showMessage('error', 'No transactions selected. Check at least one row to import.');
+        return;
+    }
+
+    showLoading(`Importing ${selected.length} transaction(s)...`);
 
     try {
-        for (let i = 0; i < uploadedFiles.length; i++) {
-            const file = uploadedFiles[i];
-            showLoading(`Processing ${i + 1}/${uploadedFiles.length}: ${file.name}`);
+        // Group by file so each file gets its own import record
+        const byFile = new Map();
+        for (const tx of selected) {
+            if (!byFile.has(tx.fileIdx)) byFile.set(tx.fileIdx, []);
+            byFile.get(tx.fileIdx).push(tx);
+        }
 
-            // Create import record
-            const importId = createImportRecord(file.name, accountId);
+        let totalImported = 0;
+        let fileNum = 0;
 
-            const text = await file.text();
+        for (const [fileIdx, transactions] of byFile) {
+            fileNum++;
+            const fileName = uploadedFiles[fileIdx]?.name || `file-${fileIdx}`;
+            showLoading(`Saving ${fileNum}/${byFile.size}: ${fileName}`);
 
-            // Handle skipRows - remove lines before parsing
-            let processedText = text;
-            if (profile.skipRows && profile.skipRows > 0) {
-                const lines = text.split('\n');
-                processedText = lines.slice(profile.skipRows).join('\n');
+            const importId = createImportRecord(fileName, accountId);
+
+            for (const tx of transactions) {
+                insertTransaction({
+                    import_id: importId,
+                    date: tx.parsedDate,
+                    description: tx.description,
+                    amount: tx.amount,
+                    category: categorizeTransaction(tx.description)
+                });
+                totalImported++;
             }
 
-            const result = Papa.parse(processedText, {
-                header: profile.hasHeader !== false,
-                skipEmptyLines: true
-            });
-
-            let fileImported = 0;
-            for (const row of result.data) {
-                const transaction = mapTransaction(row, profile, importId, effectiveDateFormat);
-                if (transaction) {
-                    insertTransaction(transaction);
-                    totalImported++;
-                    fileImported++;
-                }
-            }
-
-            // Update import record with count
-            updateImportCount(importId, fileImported);
+            updateImportCount(importId, transactions.length);
         }
 
         showLoading('Saving to database...');
@@ -947,7 +1062,7 @@ async function processUploadedFiles() {
         await updateAnalytics();
 
         hideLoading();
-        showMessage('success', `Imported ${totalImported} transactions from ${uploadedFiles.length} file(s)`);
+        showMessage('success', `Imported ${totalImported} transaction${totalImported !== 1 ? 's' : ''} from ${byFile.size} file${byFile.size !== 1 ? 's' : ''}`);
 
         cancelUpload();
     } catch (e) {

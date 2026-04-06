@@ -345,10 +345,14 @@ function createTables() {
             bank_id INTEGER NOT NULL,
             account_name TEXT NOT NULL,
             account_number TEXT,
+            keyword TEXT DEFAULT '',
             FOREIGN KEY (bank_id) REFERENCES banks(id),
             UNIQUE(bank_id, account_name)
         )
     `);
+
+    // Migrate: add keyword column to existing databases
+    try { db.run("ALTER TABLE accounts ADD COLUMN keyword TEXT DEFAULT ''"); } catch(e) {}
 
     db.run(`
         CREATE TABLE IF NOT EXISTS transaction_rules (
@@ -603,7 +607,52 @@ function handleFiles(files) {
     // Show bank profile selector
     populateBankProfileSelector();
     document.getElementById('bankProfileSelector').style.display = 'block';
+
+    // Auto-detect bank/account from first line of first file
+    await autoDetectBankAccount(uploadedFiles[0]);
+
     updateImportPreview(true);
+}
+
+function readFirstLine(file) {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve((e.target.result || '').split('\n')[0]);
+        reader.onerror = () => resolve('');
+        reader.readAsText(file.slice(0, 2048));
+    });
+}
+
+async function autoDetectBankAccount(file) {
+    try {
+        const firstLine = await readFirstLine(file);
+        if (!firstLine) return;
+
+        const result = db.exec(`
+            SELECT a.id, a.keyword, a.bank_id
+            FROM accounts a
+            WHERE a.keyword IS NOT NULL AND a.keyword != ''
+        `);
+        if (!result.length) return;
+
+        const lowerLine = firstLine.toLowerCase();
+        for (const [accountId, keyword, bankId] of result[0].values) {
+            if (lowerLine.includes(keyword.toLowerCase())) {
+                const profileIdx = bankProfiles.findIndex(p => p.id === bankId);
+                if (profileIdx === -1) continue;
+
+                const bankSelect = document.getElementById('bankProfileSelect');
+                bankSelect.value = profileIdx;
+                updateAccountOptions();
+                syncDateFormatDropdown();
+                document.getElementById('accountSelect').value = accountId;
+                showMessage('success', `Auto-detected: ${escapeHtml(bankProfiles[profileIdx].name)}`);
+                return;
+            }
+        }
+    } catch (e) {
+        // Silent fail — user can select manually
+    }
 }
 
 function resetFileSelection() {
@@ -3794,11 +3843,101 @@ function renderBankProfiles() {
                     </p>
                 </div>
             </div>
+            ${renderAccountsForProfile(profile.id, idx)}
             <button class="danger-btn" data-delete-profile>Delete Profile</button>
         `;
         div.querySelector('[data-delete-profile]').addEventListener('click', () => deleteProfile(idx));
         container.appendChild(div);
     });
+}
+
+function renderAccountsForProfile(bankId, profileIdx) {
+    if (!bankId) return '';
+    const result = db.exec(`
+        SELECT id, account_name, account_number, keyword
+        FROM accounts WHERE bank_id = ? ORDER BY account_name
+    `, [bankId]);
+
+    const rows = result.length ? result[0].values : [];
+    const accountRows = rows.map(([id, name, number, keyword]) => {
+        const display = escapeHtml(name) + (number ? ` (...${escapeHtml(number)})` : '');
+        const kw = escapeHtml(keyword || '');
+        return `
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px; padding:8px; background:white; border-radius:4px; border:1px solid #ecf0f1;">
+                <span style="flex:1; font-size:13px;">${display}</span>
+                <input type="text" value="${kw}" placeholder="CSV keyword for auto-detect"
+                       style="flex:1; font-size:13px;"
+                       onchange="updateAccountKeyword(${id}, this.value)"
+                       title="Keyword found in first CSV line to auto-select this account">
+                <button class="danger-btn" style="padding:4px 10px; font-size:12px;"
+                        onclick="deleteAccountFromSettings(${id}, ${profileIdx})">Delete</button>
+            </div>`;
+    }).join('');
+
+    return `
+        <div class="form-group" style="margin-top:20px; border-top:1px solid #ecf0f1; padding-top:16px;">
+            <label style="font-weight:bold; display:block; margin-bottom:10px;">Accounts</label>
+            <p style="font-size:12px; color:#7f8c8d; margin-bottom:10px;">
+                Set a keyword to auto-select this account when that text appears in the first line of a dropped CSV file.
+            </p>
+            ${accountRows || '<p style="font-size:13px; color:#95a5a6;">No accounts yet.</p>'}
+            <div style="display:flex; gap:8px; align-items:flex-end; margin-top:10px; flex-wrap:wrap;">
+                <div class="form-group" style="margin:0; flex:1; min-width:120px;">
+                    <label style="font-size:12px;">Name</label>
+                    <input type="text" id="new-acct-name-${bankId}" placeholder="e.g., Checking">
+                </div>
+                <div class="form-group" style="margin:0; width:100px;">
+                    <label style="font-size:12px;">Last 4 digits</label>
+                    <input type="text" id="new-acct-number-${bankId}" placeholder="optional">
+                </div>
+                <div class="form-group" style="margin:0; flex:1; min-width:120px;">
+                    <label style="font-size:12px;">CSV Keyword</label>
+                    <input type="text" id="new-acct-keyword-${bankId}" placeholder="e.g., Chase Bank">
+                </div>
+                <button onclick="addAccountFromSettings(${bankId}, ${profileIdx})" style="white-space:nowrap;">+ Add Account</button>
+            </div>
+        </div>`;
+}
+
+function updateAccountKeyword(accountId, keyword) {
+    dbHelpers.safeRun(
+        "UPDATE accounts SET keyword = ? WHERE id = ?",
+        [keyword, accountId],
+        'Update account keyword'
+    );
+    markDirty();
+}
+
+function deleteAccountFromSettings(accountId, profileIdx) {
+    if (confirm('Delete this account? Existing transactions will be unaffected.')) {
+        dbHelpers.safeRun('DELETE FROM accounts WHERE id = ?', [accountId], 'Delete account');
+        markDirty();
+        renderBankProfiles();
+    }
+}
+
+function addAccountFromSettings(bankId, profileIdx) {
+    const nameInput    = document.getElementById(`new-acct-name-${bankId}`);
+    const numberInput  = document.getElementById(`new-acct-number-${bankId}`);
+    const keywordInput = document.getElementById(`new-acct-keyword-${bankId}`);
+
+    const accountName   = nameInput.value.trim();
+    const accountNumber = numberInput.value.trim();
+    const keyword       = keywordInput.value.trim();
+
+    const validationError = validators.accountName(accountName);
+    if (validationError) { showMessage('error', validationError); return; }
+
+    const result = dbHelpers.safeRun(`
+        INSERT INTO accounts (bank_id, account_name, account_number, keyword)
+        VALUES (?, ?, ?, ?)
+    `, [bankId, accountName, accountNumber || null, keyword || ''], 'Add account from settings');
+
+    if (result.success) {
+        markDirty();
+        renderBankProfiles();
+        showMessage('success', `Account "${accountName}" added`);
+    }
 }
 
 function updateProfile(idx, field, value) {

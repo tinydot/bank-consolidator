@@ -770,9 +770,7 @@ async function updateImportPreview(syncFormat) {
             const parsedDate = normalizeDate(rawDate, effectiveDateFormat);
             if (!parsedDate) parseErrors++;
 
-            // Mark as earlier-than-latest (likely already imported) when account is selected
-            const isDuplicate = !!(latestStoredDate && parsedDate && parsedDate <= latestStoredDate);
-
+            // isDuplicate and checked are resolved in the multi-stage pass below
             previewTransactions.push({
                 fileIdx,
                 fileName: file.name,
@@ -780,11 +778,76 @@ async function updateImportPreview(syncFormat) {
                 parsedDate: parsedDate || '',
                 description: description || '',
                 amount,
-                isDuplicate,
-                checked: !isDuplicate
+                isDuplicate: false,
+                checked: true
             });
         }
     }
+
+    // ── Multi-stage duplicate detection ──────────────────────────────────────
+    if (accountId && latestStoredDate) {
+        // Stage 1: count how many transactions the DB already has on the boundary
+        // date, and how many the import contains on that same date.
+        const dbCountOnBoundary = dbHelpers.queryValue(`
+            SELECT COUNT(*) FROM transactions t
+            JOIN imports i ON t.import_id = i.id
+            WHERE t.date = ? AND i.account_id = ?
+        `, [latestStoredDate, accountId]) || 0;
+
+        const importCountOnBoundary = previewTransactions
+            .filter(t => t.parsedDate === latestStoredDate).length;
+
+        // Stage 3 is only needed when the import has MORE transactions on the
+        // boundary date than the DB — meaning at least one of them is genuinely new.
+        const boundaryNeedsExactMatch = dbCountOnBoundary < importCountOnBoundary;
+
+        // Caches for stage 3 so we don't re-query the same key twice.
+        const dbCountCache   = new Map(); // fingerprint → db count
+        const importSeenCount = new Map(); // fingerprint → how many times seen so far
+
+        for (const tx of previewTransactions) {
+            if (!tx.parsedDate) continue;
+
+            if (tx.parsedDate < latestStoredDate) {
+                // Stage 1 — strictly older than the latest stored date: always a duplicate.
+                tx.isDuplicate = true;
+
+            } else if (tx.parsedDate === latestStoredDate) {
+                if (!boundaryNeedsExactMatch) {
+                    // Stage 2 — DB already has at least as many transactions on this
+                    // date as the import does, so every boundary row is already stored.
+                    tx.isDuplicate = true;
+                } else {
+                    // Stage 3 — exact-match with per-key counting so that N identical
+                    // transactions are only flagged duplicate up to the count already in DB.
+                    const key = `${tx.parsedDate}\x00${tx.description}\x00${tx.amount}`;
+
+                    if (!dbCountCache.has(key)) {
+                        const n = dbHelpers.queryValue(`
+                            SELECT COUNT(*) FROM transactions t
+                            JOIN imports i ON t.import_id = i.id
+                            WHERE t.date = ? AND t.description = ? AND t.amount = ?
+                              AND i.account_id = ?
+                        `, [tx.parsedDate, tx.description, tx.amount, accountId]) || 0;
+                        dbCountCache.set(key, n);
+                    }
+
+                    const seenSoFar = (importSeenCount.get(key) || 0) + 1;
+                    importSeenCount.set(key, seenSoFar);
+
+                    // Duplicate only if the DB already contains this many occurrences.
+                    tx.isDuplicate = seenSoFar <= dbCountCache.get(key);
+                }
+
+            } else {
+                // date > latestStoredDate: definitely new.
+                tx.isDuplicate = false;
+            }
+
+            tx.checked = !tx.isDuplicate;
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     renderPreviewTable(latestStoredDate, parseErrors);
 }

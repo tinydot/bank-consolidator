@@ -2506,11 +2506,15 @@ function renderCategoryDetailTags() {
         section.style.cssText = 'border:1px solid #ecf0f1; border-radius:8px; margin-bottom:12px; overflow:hidden;';
 
         const header = document.createElement('div');
-        header.style.cssText = `display:flex; align-items:center; justify-content:space-between; padding:12px 16px; background:${cat.color}15; cursor:pointer; user-select:none;`;
+        header.style.cssText = `display:flex; flex-direction:column; background:${cat.color}15; cursor:pointer; user-select:none;`;
 
         let amountDisplay = `<div style="font-weight:600; color:#222;">$${total.toFixed(2)}</div>`;
+        let budgetBar = '';
         if (cat.budget) {
             const overBudget = total > cat.budget;
+            const pct = cat.budget > 0 ? (total / cat.budget * 100) : 0;
+            const barWidth = Math.min(pct, 100);
+            const barColor = overBudget ? '#e74c3c' : pct > 80 ? '#f39c12' : '#2ecc71';
             const diff = Math.abs(cat.budget - total).toFixed(2);
             const diffLabel = overBudget ? `$${diff} over` : `$${diff} left`;
             amountDisplay = `
@@ -2520,16 +2524,20 @@ function renderCategoryDetailTags() {
                     <div style="font-size:11px; color:${overBudget ? '#e74c3c' : '#27ae60'}; font-weight:500;">${diffLabel}</div>
                 </div>
             `;
+            budgetBar = `<div style="background:#ecf0f1; height:6px; overflow:hidden;"><div style="width:${barWidth.toFixed(1)}%; height:100%; background:${barColor};"></div></div>`;
         }
 
         header.innerHTML = `
-            <div style="display:flex; align-items:center; gap:10px;">
-                <span data-arrow style="color:${cat.color}; font-size:12px; transition:transform .2s;">▶</span>
-                <span style="font-size:18px;">${cat.icon}</span>
-                <span style="font-weight:600; font-size:14px;">${escapeHtml(catName)}</span>
-                <span style="color:#95a5a6; font-size:12px;">${Object.keys(labelGroups).length} unique · ${cat.transactions.length} total</span>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span data-arrow style="color:${cat.color}; font-size:12px; transition:transform .2s;">▶</span>
+                    <span style="font-size:18px;">${cat.icon}</span>
+                    <span style="font-weight:600; font-size:14px;">${escapeHtml(catName)}</span>
+                    <span style="color:#95a5a6; font-size:12px;">${Object.keys(labelGroups).length} unique · ${cat.transactions.length} total</span>
+                </div>
+                ${amountDisplay}
             </div>
-            ${amountDisplay}
+            ${budgetBar}
         `;
 
         const body = document.createElement('div');

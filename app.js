@@ -297,11 +297,49 @@ async function initSQLite() {
         localStorage.removeItem('bankConsolidator_backup');
         db = new SQL.Database(localBackup);
         createTables();
+        migrateMoneyToCents();
         await saveDatabaseToIndexedDB();
     } else {
         db = savedDb ? new SQL.Database(new Uint8Array(savedDb)) : new SQL.Database();
         createTables();
+        migrateMoneyToCents();
     }
+}
+
+// One-shot migration converting every persisted money column from REAL
+// (decimal dollars) to INTEGER cents. Runs once per database; idempotent via
+// the `migration_money_to_cents` settings flag. New / empty databases hit no
+// rows and just set the flag.
+function migrateMoneyToCents() {
+    let done = false;
+    try {
+        const r = db.exec(`SELECT value FROM settings WHERE key = 'migration_money_to_cents'`);
+        done = r.length > 0 && r[0].values.length > 0 && r[0].values[0][0] === 'done';
+    } catch (e) { /* settings table missing — first run, treat as not done */ }
+    if (done) return;
+
+    db.run(`UPDATE transactions         SET amount         = CAST(ROUND(amount         * 100) AS INTEGER)`);
+    db.run(`UPDATE manual_transactions  SET amount         = CAST(ROUND(amount         * 100) AS INTEGER)`);
+    db.run(`UPDATE budget               SET monthly_limit  = CAST(ROUND(monthly_limit  * 100) AS INTEGER)`);
+    db.run(`UPDATE expense_commitments  SET amount         = CAST(ROUND(amount         * 100) AS INTEGER)`);
+    db.run(`UPDATE activity_items       SET estimated_cost = CAST(ROUND(estimated_cost * 100) AS INTEGER) WHERE estimated_cost IS NOT NULL`);
+    db.run(`UPDATE activity_items       SET actual_cost    = CAST(ROUND(actual_cost    * 100) AS INTEGER) WHERE actual_cost IS NOT NULL`);
+    db.run(`UPDATE bank_balances        SET balance        = CAST(ROUND(balance        * 100) AS INTEGER)`);
+
+    // Text-stored money values in key/value tables.
+    for (const [table, key] of [['settings', 'monthly_expected_income'], ['planner_settings', 'variable_spend']]) {
+        try {
+            const r = db.exec(`SELECT value FROM ${table} WHERE key = ?`, [key]);
+            if (r.length > 0 && r[0].values.length > 0) {
+                const v = parseFloat(r[0].values[0][0]);
+                if (isFinite(v)) {
+                    db.run(`UPDATE ${table} SET value = ? WHERE key = ?`, [String(Math.round(v * 100)), key]);
+                }
+            }
+        } catch (e) { /* table or row absent — nothing to migrate */ }
+    }
+
+    db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('migration_money_to_cents', 'done')`);
 }
 
 function createTables() {
@@ -390,7 +428,7 @@ function createTables() {
             import_id INTEGER NOT NULL,
             date TEXT NOT NULL,
             description TEXT,
-            amount REAL NOT NULL,
+            amount INTEGER NOT NULL,
             category_id INTEGER,
             subcategory_id INTEGER,
             ignored INTEGER DEFAULT 0,
@@ -418,7 +456,7 @@ function createTables() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT NOT NULL,
             description TEXT NOT NULL,
-            amount REAL NOT NULL,
+            amount INTEGER NOT NULL,
             category_id INTEGER,
             subcategory_id INTEGER,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -443,7 +481,7 @@ function createTables() {
     db.run(`
         CREATE TABLE IF NOT EXISTS budget (
             category_id INTEGER PRIMARY KEY,
-            monthly_limit REAL NOT NULL,
+            monthly_limit INTEGER NOT NULL,
             FOREIGN KEY (category_id) REFERENCES categories(id)
         )
     `);
@@ -452,7 +490,7 @@ function createTables() {
         CREATE TABLE IF NOT EXISTS expense_commitments (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             description   TEXT NOT NULL,
-            amount        REAL NOT NULL,
+            amount        INTEGER NOT NULL,
             type          TEXT NOT NULL DEFAULT 'monthly',
             category_id   INTEGER,
             subcategory_id INTEGER,
@@ -491,8 +529,8 @@ function createTables() {
             activity_id INTEGER NOT NULL,
             category_id INTEGER,
             description TEXT NOT NULL,
-            estimated_cost REAL NOT NULL,
-            actual_cost REAL,
+            estimated_cost INTEGER NOT NULL,
+            actual_cost INTEGER,
             FOREIGN KEY (activity_id) REFERENCES planned_activities(id) ON DELETE CASCADE,
             FOREIGN KEY (category_id) REFERENCES categories(id)
         )
@@ -502,7 +540,7 @@ function createTables() {
         CREATE TABLE IF NOT EXISTS bank_balances (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             account_name TEXT NOT NULL,
-            balance REAL NOT NULL,
+            balance INTEGER NOT NULL,
             as_of_date TEXT NOT NULL,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
@@ -681,8 +719,8 @@ function resetFileSelection() {
 
 function populateBankProfileSelector() {
     const select = document.getElementById('bankProfileSelect');
-    select.innerHTML = bankProfiles.map((profile, idx) => 
-        `<option value="${idx}">${profile.name}</option>`
+    select.innerHTML = bankProfiles.map((profile, idx) =>
+        `<option value="${idx}">${escapeHtml(profile.name)}</option>`
     ).join('');
     updateAccountOptions();
     syncDateFormatDropdown();
@@ -895,7 +933,7 @@ function renderPreviewTable(latestStoredDate, parseErrors) {
         const hidden = tx.isDuplicate && !_showDuplicates;
         const rowStyle = hidden ? 'display:none;' : (tx.isDuplicate ? 'opacity:0.5;' : '');
         const amtClass = tx.amount >= 0 ? 'transaction-positive' : 'transaction-negative';
-        const amtStr = tx.amount >= 0 ? `+$${tx.amount.toFixed(2)}` : `-$${Math.abs(tx.amount).toFixed(2)}`;
+        const amtStr = fmtMoneySigned(tx.amount);
         const dateInputStyle = tx.parsedDate ? '' : 'border-color:#e74c3c;';
 
         html += `
@@ -998,7 +1036,7 @@ function updateAccountOptions() {
             const accountName = row[1];
             const accountNumber = row[2];
             const displayName = accountNumber ? `${accountName} (...${accountNumber})` : accountName;
-            select.innerHTML += `<option value="${accountId}">${displayName}</option>`;
+            select.innerHTML += `<option value="${accountId}">${escapeHtml(displayName)}</option>`;
         });
         // Auto-select the first account
         select.value = accountsResult[0].values[0][0];
@@ -1306,7 +1344,7 @@ function updateEditSubcategoryOptions(transactionId) {
         result[0].values.forEach(row => {
             const id = row[0];
             const name = row[1];
-            select.innerHTML += `<option value="${id}">${name}</option>`;
+            select.innerHTML += `<option value="${id}">${escapeHtml(name)}</option>`;
         });
     }
 }
@@ -1566,22 +1604,49 @@ function normalizeDate(dateStr, format) {
         }
     }
 
-    // Fall back to browser parsing but extract parts to avoid UTC shift
-    const d = new Date(s);
-    if (!isNaN(d)) {
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        return `${d.getFullYear()}-${mm}-${dd}`;
-    }
+    // No more guesses. `new Date(s)` is locale-dependent for ambiguous strings
+    // like "01/02/2025" (US: Jan 2, UK: Feb 1) and would silently corrupt
+    // imports from foreign banks. Bail so the caller surfaces the problem and
+    // the user can pick an explicit format on the bank profile.
     return null;
 }
 
-// Strip thousand-separator commas before parsing (e.g. "3,142.50" → 3142.50)
-// PapaParse has already split on CSV delimiters so commas in cell values are safe to remove
+// ── Money helpers ────────────────────────────────────────────────────────
+// All persisted amounts are integer cents to avoid float drift. SQL aggregates
+// (SUM, ABS, comparisons) work unchanged on integers; only the display
+// boundary needs to divide by 100. `parseAmount` is the input-parsing helper
+// for CSV / form values that arrive as decimal strings or numbers.
+
+function toCents(val) {
+    if (val === null || val === undefined || val === '') return 0;
+    const n = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, ''));
+    if (!isFinite(n)) return 0;
+    return Math.round(n * 100);
+}
+
+function fromCents(cents) {
+    return (cents || 0) / 100;
+}
+
+function fmtMoney(cents) {
+    return (Math.abs(cents || 0) / 100).toFixed(2);
+}
+
+function fmtMoneySigned(cents) {
+    const c = cents || 0;
+    return c >= 0 ? `+$${fmtMoney(c)}` : `-$${fmtMoney(c)}`;
+}
+
+function fmtMoneyLocale(cents, locale = 'en-US') {
+    return (Math.abs(cents || 0) / 100).toLocaleString(locale, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
+}
+
+// CSV/form values arrive as decimal strings — convert to integer cents.
 function parseAmount(val) {
-    if (val === null || val === undefined) return 0;
-    const cleaned = String(val).replace(/,/g, '');
-    return parseFloat(cleaned) || 0;
+    return toCents(val);
 }
 
 function categorizeTransaction(description) {
@@ -1787,7 +1852,8 @@ function updateBankFilter() {
 
     if (result.length > 0) {
         result[0].values.forEach(row => {
-            select.innerHTML += `<option value="${row[0]}">${row[0]}</option>`;
+            const name = escapeHtml(row[0]);
+            select.innerHTML += `<option value="${name}">${name}</option>`;
         });
     }
 
@@ -1828,7 +1894,7 @@ function updateAccountFilter() {
             const displayName = bankName
                 ? (accountNumber ? `${accountName} (...${accountNumber})` : accountName)
                 : (accountNumber ? `${bank} - ${accountName} (...${accountNumber})` : `${bank} - ${accountName}`);
-            select.innerHTML += `<option value="${accountId}">${displayName}</option>`;
+            select.innerHTML += `<option value="${accountId}">${escapeHtml(displayName)}</option>`;
         });
     }
 
@@ -1853,7 +1919,7 @@ function updateCategoryFilter() {
         result[0].values.forEach(row => {
             const categoryId = row[0];
             const categoryName = row[1];
-            select.innerHTML += `<option value="${categoryId}">${categoryName}</option>`;
+            select.innerHTML += `<option value="${categoryId}">${escapeHtml(categoryName)}</option>`;
         });
     }
 
@@ -1884,7 +1950,7 @@ function updateSubcategoryFilter() {
         result[0].values.forEach(row => {
             const subId = row[0];
             const subName = row[1];
-            select.innerHTML += `<option value="${subId}">${subName}</option>`;
+            select.innerHTML += `<option value="${subId}">${escapeHtml(subName)}</option>`;
         });
     }
 }
@@ -1939,7 +2005,7 @@ function displayTransactions(result, totalCount = 0, page = 0) {
         const subcategoryId = row[11] ?? null;
 
         const amountClass = amount >= 0 ? 'transaction-positive' : 'transaction-negative';
-        const amountStr   = amount >= 0 ? `+$${amount.toFixed(2)}` : `-$${Math.abs(amount).toFixed(2)}`;
+        const amountStr   = fmtMoneySigned(amount);
 
         // Combine bank + account
         const accountDisplay = `${escapeHtml(bank)} • ${escapeHtml(account)}`;
@@ -2160,7 +2226,7 @@ function expandTagToTransactions(bodyContainer, label, group, categoryColor) {
             <h3 style="margin: 0; color: #2c3e50;">${escapeHtml(label)}</h3>
             <div style="font-size: 13px; color: #7f8c8d; margin-top: 4px;">
                 ${group.count} transaction${group.count !== 1 ? 's' : ''} • 
-                Total: <strong style="color: #e74c3c;">$${group.total.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>
+                Total: <strong style="color: #e74c3c;">$${fmtMoneyLocale(group.total)}</strong>
             </div>
         </div>
         <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">×</button>
@@ -2189,7 +2255,7 @@ function expandTagToTransactions(bodyContainer, label, group, categoryColor) {
         tr.innerHTML = `
             <td style="padding:10px 8px; font-size:12px; color:#7f8c8d; white-space:nowrap;">${tx.date}</td>
             <td style="padding:10px 8px; font-size:13px; color:#2c3e50;">${escapeHtml(tx.desc)}</td>
-            <td style="padding:10px 8px; text-align:right; font-weight:600; color:#e74c3c; white-space:nowrap;">$${Math.abs(tx.amount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+            <td style="padding:10px 8px; text-align:right; font-weight:600; color:#e74c3c; white-space:nowrap;">$${fmtMoneyLocale(tx.amount)}</td>
         `;
         tbody.appendChild(tr);
     });
@@ -2448,26 +2514,26 @@ function renderCategoryDetailTags() {
     const upcomingCard = showUpcoming ? `
         <div style="border-left:3px solid #e67e22; padding-left:12px;">
             <div style="font-size:11px; color:#7f8c8d; font-weight:600; margin-bottom:6px; text-transform:uppercase;">After Planned Bills</div>
-            <div style="font-size:20px; font-weight:700; color:${safeColor};">${safeToSpend >= 0 ? '+' : '-'}$${Math.abs(safeToSpend).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-            <div style="font-size:11px; color:#e67e22; margin-top:4px;">$${upcomingCommitted.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} still due</div>
+            <div style="font-size:20px; font-weight:700; color:${safeColor};">${safeToSpend >= 0 ? '+' : '-'}$${fmtMoneyLocale(safeToSpend)}</div>
+            <div style="font-size:11px; color:#e67e22; margin-top:4px;">$${fmtMoneyLocale(upcomingCommitted)} still due</div>
         </div>` : '';
 
     summaryHeader.innerHTML = `
         <div>
             <div style="font-size:11px; color:#7f8c8d; font-weight:600; margin-bottom:6px; text-transform:uppercase;">${incomeLabel}</div>
-            <div style="font-size:20px; font-weight:700; color:#27ae60;">$${totalIncome.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+            <div style="font-size:20px; font-weight:700; color:#27ae60;">$${fmtMoneyLocale(totalIncome)}</div>
         </div>
         <div>
             <div style="font-size:11px; color:#7f8c8d; font-weight:600; margin-bottom:6px; text-transform:uppercase;">Total Expenses</div>
-            <div style="font-size:20px; font-weight:700; color:#e74c3c;">$${totalExpenses.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+            <div style="font-size:20px; font-weight:700; color:#e74c3c;">$${fmtMoneyLocale(totalExpenses)}</div>
         </div>
         <div>
             <div style="font-size:11px; color:#7f8c8d; font-weight:600; margin-bottom:6px; text-transform:uppercase;">Total Budget</div>
-            <div style="font-size:20px; font-weight:700; color:${budgetColor};">$${totalBudget.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+            <div style="font-size:20px; font-weight:700; color:${budgetColor};">$${fmtMoneyLocale(totalBudget)}</div>
         </div>
         <div>
             <div style="font-size:11px; color:#7f8c8d; font-weight:600; margin-bottom:6px; text-transform:uppercase;">Remaining</div>
-            <div style="font-size:20px; font-weight:700; color:${netColor};">${netAmount >= 0 ? '+' : '-'}$${Math.abs(netAmount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+            <div style="font-size:20px; font-weight:700; color:${netColor};">${netAmount >= 0 ? '+' : '-'}$${fmtMoneyLocale(netAmount)}</div>
         </div>
         ${upcomingCard}
     `;
@@ -2508,19 +2574,19 @@ function renderCategoryDetailTags() {
         const header = document.createElement('div');
         header.style.cssText = `display:flex; flex-direction:column; background:${cat.color}15; cursor:pointer; user-select:none;`;
 
-        let amountDisplay = `<div style="font-weight:600; color:#222;">$${total.toFixed(2)}</div>`;
+        let amountDisplay = `<div style="font-weight:600; color:#222;">$${fmtMoney(total)}</div>`;
         let budgetBar = '';
         if (cat.budget) {
             const overBudget = total > cat.budget;
             const pct = cat.budget > 0 ? (total / cat.budget * 100) : 0;
             const barWidth = Math.min(pct, 100);
             const barColor = overBudget ? '#e74c3c' : pct > 80 ? '#f39c12' : '#2ecc71';
-            const diff = Math.abs(cat.budget - total).toFixed(2);
+            const diff = fmtMoney(cat.budget - total);
             const diffLabel = overBudget ? `$${diff} over` : `$${diff} left`;
             amountDisplay = `
                 <div style="text-align:right;">
-                    <div style="font-weight:600; color:${overBudget ? '#e74c3c' : '#222'};">$${total.toFixed(2)}</div>
-                    <div style="font-size:11px; color:#95a5a6;">Budget: $${cat.budget.toFixed(2)}</div>
+                    <div style="font-weight:600; color:${overBudget ? '#e74c3c' : '#222'};">$${fmtMoney(total)}</div>
+                    <div style="font-size:11px; color:#95a5a6;">Budget: $${fmtMoney(cat.budget)}</div>
                     <div style="font-size:11px; color:${overBudget ? '#e74c3c' : '#27ae60'}; font-weight:500;">${diffLabel}</div>
                 </div>
             `;
@@ -2553,7 +2619,7 @@ function renderCategoryDetailTags() {
             tag.innerHTML = `
                 <span style="font-weight:500; color:#2c3e50;">${escapeHtml(label)}</span>
                 ${group.count > 1 ? `<span style="font-size:10px; color:#95a5a6; background:#f8f9fa; padding:1px 5px; border-radius:8px;">x${group.count}</span>` : ''}
-                <span style="color:#e74c3c; font-weight:600;">$${group.total.toFixed(2)}</span>
+                <span style="color:#e74c3c; font-weight:600;">$${fmtMoney(group.total)}</span>
             `;
             tag.onmouseenter = () => tag.style.boxShadow = '0 2px 6px rgba(0,0,0,0.1)';
             tag.onmouseleave = () => tag.style.boxShadow = 'none';
@@ -2617,9 +2683,9 @@ function updateMonthlyTable(result) {
         monthRow.style.userSelect = 'none';
         monthRow.innerHTML = `
             <td><span style="margin-right:6px; font-size:11px;">▶</span><strong>${label}</strong></td>
-            <td class="transaction-positive" style="text-align:right;">$${income.toFixed(2)}</td>
-            <td class="transaction-negative" style="text-align:right;">$${expenses.toFixed(2)}</td>
-            <td class="${netClass}" style="text-align:right;">${netSign}$${Math.abs(net).toFixed(2)}</td>
+            <td class="transaction-positive" style="text-align:right;">$${fmtMoney(income)}</td>
+            <td class="transaction-negative" style="text-align:right;">$${fmtMoney(expenses)}</td>
+            <td class="${netClass}" style="text-align:right;">${netSign}$${fmtMoney(net)}</td>
         `;
         tbody.appendChild(monthRow);
 
@@ -2695,13 +2761,13 @@ function buildCategorySubtable(month) {
                 <span style="margin-right:6px; font-size:10px;">▶</span>${escapeHtml(category)}
             </td>
             <td class="transaction-positive" style="text-align:right; padding:5px 8px;">
-                ${income > 0 ? '$' + income.toFixed(2) : '—'}
+                ${income > 0 ? '$' + fmtMoney(income) : '—'}
             </td>
             <td class="transaction-negative" style="text-align:right; padding:5px 8px;">
-                ${expenses > 0 ? '$' + expenses.toFixed(2) : '—'}
+                ${expenses > 0 ? '$' + fmtMoney(expenses) : '—'}
             </td>
             <td class="${netClass}" style="text-align:right; padding:5px 8px;">
-                ${netSign}$${Math.abs(net).toFixed(2)}
+                ${netSign}$${fmtMoney(net)}
             </td>
         `;
         catBody.appendChild(catRow);
@@ -2773,7 +2839,7 @@ function buildTransactionSubtable(month, categoryId) {
     rows.forEach(row => {
         const [date, description, amount, bank, account] = row;
         const amtClass = amount >= 0 ? 'transaction-positive' : 'transaction-negative';
-        const amtStr = amount >= 0 ? `+$${amount.toFixed(2)}` : `-$${Math.abs(amount).toFixed(2)}`;
+        const amtStr = fmtMoneySigned(amount);
 
         const tr = document.createElement('tr');
         tr.innerHTML = `
@@ -2888,10 +2954,11 @@ function updateCategoryChart(result) {
         return new Date(year, mo - 1).toLocaleDateString(undefined, { year: 'numeric', month: 'short' });
     });
 
-    // One dataset per category
+    // One dataset per category. Chart data is in dollars (the stored cents
+    // values are converted at the boundary so axes/tooltips render normally).
     const datasets = categories.map((cat, i) => ({
         label: cat,
-        data: months.map(m => dataMap[m]?.[cat] || 0),
+        data: months.map(m => fromCents(dataMap[m]?.[cat] || 0)),
         backgroundColor: COLORS[i % COLORS.length],
     }));
 
@@ -3104,7 +3171,7 @@ footer{text-align:center;font-size:11px;color:#bdc3c7;margin-top:32px;padding-to
 
 // ── Section renderers (pure string → no DOM, no JS in output) ────────────
 
-function rpt_fmt(n) { return `S$${Math.abs(n).toFixed(2)}`; }
+function rpt_fmt(cents) { return `S$${fmtMoney(cents)}`; }
 function rpt_esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 function rpt_analytics(stats, monthlyRows, catRows) {
@@ -3477,7 +3544,8 @@ async function loadDatabaseFromIndexedDB() {
 function loadMonthlyIncomeSettings() {
     const val = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'monthly_expected_income'");
     const input = document.getElementById('monthlyExpectedIncome');
-    if (input) input.value = val || '';
+    // Stored as integer cents — display as decimal dollars in the form.
+    if (input) input.value = val ? fromCents(parseInt(val, 10)).toFixed(2) : '';
 }
 
 async function saveMonthlyIncome() {
@@ -3490,10 +3558,11 @@ async function saveMonthlyIncome() {
     if (val === '') {
         db.run("DELETE FROM settings WHERE key = 'monthly_expected_income'");
     } else {
-        db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('monthly_expected_income', ?)", [val]);
+        const cents = toCents(val);
+        db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('monthly_expected_income', ?)", [String(cents)]);
     }
     markDirty();
-    showMessage('success', val === '' ? 'Monthly income cleared.' : `Monthly income set to $${parseFloat(val).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}.`);
+    showMessage('success', val === '' ? 'Monthly income cleared.' : `Monthly income set to $${fmtMoneyLocale(toCents(val))}.`);
     if (document.getElementById('analytics-tab').classList.contains('active')) {
         await updateAnalytics();
     }
@@ -3843,14 +3912,24 @@ async function loadBankProfiles() {
         createDefaultProfiles();
     }
 
-    // Migrate from localStorage if present and DB is empty
+    // Migrate from localStorage if present and DB is empty.
+    // Wrap parse in try/catch — a hand-edited or partially-written legacy
+    // value would otherwise throw and stall app initialization.
     const saved = localStorage.getItem('bankProfiles');
     if (saved && bankProfiles.length === 0) {
-        const oldProfiles = JSON.parse(saved);
-        oldProfiles.forEach(profile => saveBankProfileToDB(profile));
-        localStorage.removeItem('bankProfiles');
-        loadBankProfiles();
-        return;
+        let oldProfiles;
+        try {
+            oldProfiles = JSON.parse(saved);
+        } catch (e) {
+            localStorage.removeItem('bankProfiles');
+            oldProfiles = null;
+        }
+        if (Array.isArray(oldProfiles) && oldProfiles.length > 0) {
+            oldProfiles.forEach(profile => saveBankProfileToDB(profile));
+            localStorage.removeItem('bankProfiles');
+            loadBankProfiles();
+            return;
+        }
     }
 
     renderBankProfiles();
@@ -4271,7 +4350,7 @@ function showMessage(type, text) {
 async function addManualTransaction() {
     const date = document.getElementById('manualDate').value;
     const sign = document.getElementById('manualSign').value;
-    const amountRaw = parseFloat(document.getElementById('manualAmount').value);
+    const amountCents = toCents(document.getElementById('manualAmount').value);
     const description = document.getElementById('manualDescription').value.trim();
 
     // Validate
@@ -4279,7 +4358,7 @@ async function addManualTransaction() {
         showManualMessage('error', 'Please enter a date');
         return;
     }
-    if (!amountRaw || isNaN(amountRaw) || amountRaw <= 0) {
+    if (!amountCents || amountCents <= 0) {
         showManualMessage('error', 'Please enter a valid amount');
         return;
     }
@@ -4288,7 +4367,7 @@ async function addManualTransaction() {
         return;
     }
 
-    const amount = sign === '-' ? -Math.abs(amountRaw) : Math.abs(amountRaw);
+    const amount = sign === '-' ? -Math.abs(amountCents) : Math.abs(amountCents);
 
     // Apply transaction rules to auto-categorize
     const ruleResult = applyTransactionRules(description, null);
@@ -4412,7 +4491,7 @@ function displayManualTransactions(rows) {
         });
         const dayNet = dayIncome - dayExpenses;
         const dayNetClass = dayNet >= 0 ? 'transaction-positive' : 'transaction-negative';
-        const dayNetStr = dayNet >= 0 ? `+$${dayNet.toFixed(2)}` : `-$${Math.abs(dayNet).toFixed(2)}`;
+        const dayNetStr = fmtMoneySigned(dayNet);
 
         // Format date nicely
         const dateObj = new Date(date + 'T00:00:00');
@@ -4425,8 +4504,8 @@ function displayManualTransactions(rows) {
                         padding:8px 14px; margin-top:18px; border-radius:0 4px 4px 0;">
                 <strong style="color:#2c3e50;">${dateLabel}</strong>
                 <div style="display:flex; gap:18px; font-size:13px;">
-                    ${dayIncome  > 0 ? `<span class="transaction-positive">+$${dayIncome.toFixed(2)}</span>` : ''}
-                    ${dayExpenses > 0 ? `<span class="transaction-negative">-$${dayExpenses.toFixed(2)}</span>` : ''}
+                    ${dayIncome  > 0 ? `<span class="transaction-positive">+$${fmtMoney(dayIncome)}</span>` : ''}
+                    ${dayExpenses > 0 ? `<span class="transaction-negative">-$${fmtMoney(dayExpenses)}</span>` : ''}
                     <span style="color:#7f8c8d;">Net</span>
                     <strong class="${dayNetClass}">${dayNetStr}</strong>
                 </div>
@@ -4447,7 +4526,7 @@ function displayManualTransactions(rows) {
         dayRows.forEach(row => {
             const [id, , description, amount, categoryName, categoryIcon] = row;
             const amountClass = amount >= 0 ? 'transaction-positive' : 'transaction-negative';
-            const amountStr   = amount >= 0 ? `+$${amount.toFixed(2)}` : `-$${Math.abs(amount).toFixed(2)}`;
+            const amountStr   = fmtMoneySigned(amount);
             const categoryDisplay = categoryName ? `${categoryIcon || ''} ${escapeHtml(categoryName)}` : '<span style="color:#95a5a6;">Uncategorized</span>';
 
             html += `<tr>
@@ -4486,10 +4565,10 @@ function updateManualSummary(rows) {
     const net = income - expenses;
 
     document.getElementById('manualCount').textContent = rows.length;
-    document.getElementById('manualIncome').textContent = `+$${income.toFixed(2)}`;
-    document.getElementById('manualExpenses').textContent = `-$${expenses.toFixed(2)}`;
+    document.getElementById('manualIncome').textContent = `+$${fmtMoney(income)}`;
+    document.getElementById('manualExpenses').textContent = `-$${fmtMoney(expenses)}`;
     const netEl = document.getElementById('manualNet');
-    netEl.textContent = net >= 0 ? `+$${net.toFixed(2)}` : `-$${Math.abs(net).toFixed(2)}`;
+    netEl.textContent = fmtMoneySigned(net);
     netEl.className = net >= 0 ? 'transaction-positive' : 'transaction-negative';
 }
 
@@ -4889,18 +4968,18 @@ async function loadBudget() {
     summary.innerHTML = `
         <div style="background:white; border:1px solid #ecf0f1; border-radius:8px; padding:16px;">
             <div style="font-size:12px; color:#7f8c8d; text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px;">Total Budget</div>
-            <div style="font-size:22px; font-weight:700; color:#2c3e50;">$${totalBudget.toFixed(2)}</div>
+            <div style="font-size:22px; font-weight:700; color:#2c3e50;">$${fmtMoney(totalBudget)}</div>
             <div style="font-size:12px; color:#95a5a6; margin-top:4px;">${assignedCount} of ${rows.length} categories assigned</div>
         </div>
         <div style="background:white; border:1px solid #ecf0f1; border-radius:8px; padding:16px;">
             <div style="font-size:12px; color:#7f8c8d; text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px;">Total Spent</div>
-            <div style="font-size:22px; font-weight:700; color:#e74c3c;">$${totalSpent.toFixed(2)}</div>
+            <div style="font-size:22px; font-weight:700; color:#e74c3c;">$${fmtMoney(totalSpent)}</div>
             <div style="font-size:12px; color:#95a5a6; margin-top:4px;">this month</div>
         </div>
         <div style="background:white; border:1px solid #ecf0f1; border-radius:8px; padding:16px;">
             <div style="font-size:12px; color:#7f8c8d; text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px;">${totalRemaining >= 0 ? 'Remaining' : 'Over Budget'}</div>
             <div style="font-size:22px; font-weight:700; color:${totalRemaining >= 0 ? '#27ae60' : '#e74c3c'};">
-                ${totalRemaining >= 0 ? '' : '-'}$${Math.abs(totalRemaining).toFixed(2)}
+                ${totalRemaining >= 0 ? '' : '-'}$${fmtMoney(totalRemaining)}
             </div>
             <div style="font-size:12px; color:#95a5a6; margin-top:4px;">of assigned categories</div>
         </div>
@@ -4930,7 +5009,7 @@ async function loadBudget() {
         const over = hasLimit && spent > limit;
         const barColor = over ? '#e74c3c' : pct > 80 ? '#f39c12' : '#2ecc71';
         const barWidth = Math.min(pct, 100); // bar capped at 100% visually
-        const overAmount = over ? (spent - limit).toFixed(2) : null;
+        const overAmount = over ? fmtMoney(spent - limit) : null;
 
         const row_el = document.createElement('div');
         row_el.style.cssText = `display:grid; grid-template-columns:${gridCols}; gap:8px; align-items:center; padding:10px 16px; background:white; border:1px solid ${over ? '#fadbd8' : '#ecf0f1'}; border-radius:6px; margin-bottom:6px;`;
@@ -4939,16 +5018,16 @@ async function loadBudget() {
         const statusLine = hasLimit
             ? (over
                 ? `<span style="color:#e74c3c; font-weight:600;">▲ Over by $${overAmount}</span>`
-                : `<span style="color:#27ae60;">$${(limit - spent).toFixed(2)} remaining</span>`)
+                : `<span style="color:#27ae60;">$${fmtMoney(limit - spent)} remaining</span>`)
             : '<span style="color:#bdc3c7;">No limit set</span>';
 
         const budgetCell = isCurrentMonth
             ? `<input type="number" min="0" step="0.01"
-                    value="${hasLimit ? limit.toFixed(2) : ''}"
+                    value="${hasLimit ? fromCents(limit).toFixed(2) : ''}"
                     placeholder="—"
                     style="width:90px; text-align:right; border:1px solid #ddd; border-radius:4px; padding:4px 6px; font-size:14px;"
                     data-id="${id}">`
-            : `<span style="font-weight:600; color:#2c3e50;">${hasLimit ? '$' + limit.toFixed(2) : '—'}</span>`;
+            : `<span style="font-weight:600; color:#2c3e50;">${hasLimit ? '$' + fmtMoney(limit) : '—'}</span>`;
 
         const saveCell = isCurrentMonth
             ? `<button data-save="${id}" style="padding:4px 10px; font-size:12px;">Save</button>`
@@ -4964,7 +5043,7 @@ async function loadBudget() {
             </div>
             <div style="text-align:right;">${budgetCell}</div>
             <div style="text-align:right; font-weight:600; color:${over ? '#e74c3c' : '#2c3e50'};">
-                $${spent.toFixed(2)}
+                $${fmtMoney(spent)}
             </div>
             <div>
                 ${hasLimit && limit > 0 ? `
@@ -5020,11 +5099,12 @@ async function saveBudgetEntry(categoryId, rawValue) {
         // Clear limit
         dbHelpers.safeRun('DELETE FROM budget WHERE category_id = ?', [categoryId], 'Clear budget');
     } else {
-        const amount = parseFloat(rawValue);
-        if (isNaN(amount) || amount < 0) {
+        const parsed = parseFloat(rawValue);
+        if (isNaN(parsed) || parsed < 0) {
             showMessage('error', 'Budget amount must be a positive number');
             return;
         }
+        const amount = toCents(rawValue);
         dbHelpers.safeRun(`
             INSERT INTO budget (category_id, monthly_limit) VALUES (?, ?)
             ON CONFLICT(category_id) DO UPDATE SET monthly_limit = excluded.monthly_limit
@@ -5045,11 +5125,12 @@ async function saveAllBudget() {
         if (raw === '') {
             dbHelpers.safeRun('DELETE FROM budget WHERE category_id = ?', [categoryId], 'Clear budget');
         } else {
-            const amount = parseFloat(raw);
-            if (isNaN(amount) || amount < 0) {
+            const parsed = parseFloat(raw);
+            if (isNaN(parsed) || parsed < 0) {
                 hasError = true;
                 return;
             }
+            const amount = toCents(raw);
             dbHelpers.safeRun(`
                 INSERT INTO budget (category_id, monthly_limit) VALUES (?, ?)
                 ON CONFLICT(category_id) DO UPDATE SET monthly_limit = excluded.monthly_limit
@@ -5155,7 +5236,7 @@ async function loadPlanner() {
     const varRow = dbHelpers.queryAll(`SELECT value FROM planner_settings WHERE key = 'variable_spend'`);
     const variableSpend = varRow.length ? parseFloat(varRow[0][0]) : 0;
     const varInput = document.getElementById('plannerVariableSpend');
-    if (varInput) varInput.value = variableSpend || '';
+    if (varInput) varInput.value = variableSpend ? fromCents(variableSpend).toFixed(2) : '';
 
     // Load commitments joined to category/subcategory names+colors
     const rows = dbHelpers.queryAll(`
@@ -5277,7 +5358,7 @@ function renderPlannerTable(commitments, variableSpend) {
         };
         const typeTag = typeTags[c.type] || '';
         const perDayHint = (c.type === 'workday' || c.type === 'nonworkday')
-            ? `<div style="font-size:11px; color:#95a5a6;">S$${c.amount.toFixed(2)} / day</div>`
+            ? `<div style="font-size:11px; color:#95a5a6;">S$${fmtMoney(c.amount)} / day</div>`
             : '';
         tdName.innerHTML = `
             <div style="font-weight:500; font-size:13px;">${escapeHtml(c.description)}${typeTag}</div>
@@ -5292,19 +5373,19 @@ function renderPlannerTable(commitments, variableSpend) {
             const td = document.createElement('td');
             td.style.cssText = 'text-align:right; padding:8px 14px; border-bottom:1px solid #f0f0f0; font-size:13px;';
             td.innerHTML = amt > 0
-                ? `<span style="font-weight:600; color:#2c3e50;">S$${amt.toFixed(2)}</span>`
+                ? `<span style="font-weight:600; color:#2c3e50;">S$${fmtMoney(amt)}</span>`
                 : `<span style="color:#e0e0e0;">—</span>`;
             tr.appendChild(td);
         });
 
         const td3mo = document.createElement('td');
         td3mo.style.cssText = 'text-align:right; padding:8px 14px; border-bottom:1px solid #f0f0f0; color:#7f8c8d; font-weight:600; font-size:13px;';
-        td3mo.textContent = commitmentTotals3mo[c.id] > 0 ? `S$${commitmentTotals3mo[c.id].toFixed(2)}` : '—';
+        td3mo.textContent = commitmentTotals3mo[c.id] > 0 ? `S$${fmtMoney(commitmentTotals3mo[c.id])}` : '—';
         tr.appendChild(td3mo);
 
         const tdTot = document.createElement('td');
         tdTot.style.cssText = 'text-align:right; padding:8px 14px; border-bottom:1px solid #f0f0f0; color:#7f8c8d; font-weight:600; font-size:13px;';
-        tdTot.textContent = commitmentTotals6mo[c.id] > 0 ? `S$${commitmentTotals6mo[c.id].toFixed(2)}` : '—';
+        tdTot.textContent = commitmentTotals6mo[c.id] > 0 ? `S$${fmtMoney(commitmentTotals6mo[c.id])}` : '—';
         tr.appendChild(tdTot);
 
         const tdAct = document.createElement('td');
@@ -5344,13 +5425,13 @@ function renderPlannerTable(commitments, variableSpend) {
         months.forEach(m => {
             const td = document.createElement('td');
             td.style.cssText = `text-align:right; padding:6px 14px; border-bottom:1px solid #e8e8e8; font-weight:600; color:${catMonthTotals[m.key] > 0 ? color : '#e0e0e0'};`;
-            td.textContent = catMonthTotals[m.key] > 0 ? `S$${catMonthTotals[m.key].toFixed(2)}` : '—';
+            td.textContent = catMonthTotals[m.key] > 0 ? `S$${fmtMoney(catMonthTotals[m.key])}` : '—';
             tr.appendChild(td);
         });
 
         const tdTot = document.createElement('td');
         tdTot.style.cssText = `text-align:right; padding:6px 14px; border-bottom:1px solid #e8e8e8; font-weight:700; color:${color};`;
-        tdTot.textContent = catTotal > 0 ? `S$${catTotal.toFixed(2)}` : '—';
+        tdTot.textContent = catTotal > 0 ? `S$${fmtMoney(catTotal)}` : '—';
         tr.appendChild(tdTot);
         tr.appendChild(document.createElement('td'));
         return tr;
@@ -5371,7 +5452,7 @@ function renderPlannerTable(commitments, variableSpend) {
             <span style="font-size:18px;">${cat.icon}</span>
             <span style="font-weight:700; font-size:14px; color:#2c3e50;">${escapeHtml(catKey)}</span>
             <span style="font-size:12px; color:#95a5a6;">${cat.items.length} item${cat.items.length !== 1 ? 's' : ''}</span>
-            <span style="margin-left:auto; font-weight:700; color:${cat.color};">S$${catTotal6mo.toFixed(2)}</span>
+            <span style="margin-left:auto; font-weight:700; color:${cat.color};">S$${fmtMoney(catTotal6mo)}</span>
             <span style="font-size:12px; color:#95a5a6;">/ 6 mo</span>
             <span data-arrow style="font-size:12px; color:${cat.color}; transition:transform .15s;">▶</span>
         `;
@@ -5423,12 +5504,12 @@ function renderPlannerTable(commitments, variableSpend) {
         months.forEach(() => {
             const td = document.createElement('td');
             td.style.cssText = 'text-align:right; padding:10px 14px; background:#fff8e1; font-weight:600; color:#e67e22; font-size:13px;';
-            td.textContent = `S$${variableSpend.toFixed(2)}`;
+            td.textContent = `S$${fmtMoney(variableSpend)}`;
             tr.appendChild(td);
         });
         const tdTot = document.createElement('td');
         tdTot.style.cssText = 'text-align:right; padding:10px 14px; background:#fff8e1; font-weight:700; color:#e67e22;';
-        tdTot.textContent = `S$${(variableSpend * 6).toFixed(2)}`;
+        tdTot.textContent = `S$${fmtMoney(variableSpend * 6)}`;
         tr.appendChild(tdTot);
         tr.appendChild(document.createElement('td'));
         tbody.appendChild(tr);
@@ -5451,7 +5532,7 @@ function renderPlannerTable(commitments, variableSpend) {
         const colTotal = monthTotals[m.key] + (variableSpend || 0);
         const td = document.createElement('td');
         td.style.cssText = 'text-align:right; padding:12px 14px; font-size:13px; min-width:95px;';
-        td.textContent = `S$${colTotal.toFixed(2)}`;
+        td.textContent = `S$${fmtMoney(colTotal)}`;
         totalRow.appendChild(td);
     });
     const tdGrand = document.createElement('td');
@@ -5474,8 +5555,8 @@ function renderPlannerTable(commitments, variableSpend) {
             <div style="font-size:13px; color:#95a5a6;">Fixed commitments + variable spend over 3 months</div>
         </div>
         <div style="text-align:right;">
-            <div style="font-size:32px; font-weight:800; color:#3498db;">S$${grandTotal3mo.toLocaleString('en-SG', {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
-            <div style="font-size:12px; color:#95a5a6; margin-top:2px;">≈ S$${(grandTotal3mo/3).toLocaleString('en-SG', {minimumFractionDigits:2, maximumFractionDigits:2})} / month average</div>
+            <div style="font-size:32px; font-weight:800; color:#3498db;">S$${fmtMoneyLocale(grandTotal3mo, 'en-SG')}</div>
+            <div style="font-size:12px; color:#95a5a6; margin-top:2px;">≈ S$${fmtMoneyLocale(grandTotal3mo / 3, 'en-SG')} / month average</div>
         </div>
     `;
 
@@ -5487,8 +5568,8 @@ function renderPlannerTable(commitments, variableSpend) {
             <div style="font-size:13px; color:#95a5a6;">Fixed commitments + variable spend over 6 months</div>
         </div>
         <div style="text-align:right;">
-            <div style="font-size:32px; font-weight:800; color:#27ae60;">S$${grandTotal6mo.toLocaleString('en-SG', {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
-            <div style="font-size:12px; color:#95a5a6; margin-top:2px;">≈ S$${(grandTotal6mo/6).toLocaleString('en-SG', {minimumFractionDigits:2, maximumFractionDigits:2})} / month average</div>
+            <div style="font-size:32px; font-weight:800; color:#27ae60;">S$${fmtMoneyLocale(grandTotal6mo, 'en-SG')}</div>
+            <div style="font-size:12px; color:#95a5a6; margin-top:2px;">≈ S$${fmtMoneyLocale(grandTotal6mo / 6, 'en-SG')} / month average</div>
         </div>
     `;
 
@@ -5521,7 +5602,7 @@ function editCommitment(c) {
     document.getElementById('plannerEditId').value = c.id;
     document.getElementById('plannerFormTitle').textContent = 'Edit Expense Commitment';
     document.getElementById('plannerDesc').value = c.description;
-    document.getElementById('plannerAmount').value = c.amount;
+    document.getElementById('plannerAmount').value = fromCents(c.amount).toFixed(2);
     document.getElementById('plannerType').value = c.type;
     document.getElementById('plannerActiveMonths').value = c.active_months || '';
     document.getElementById('plannerDates').value = c.payment_dates || '';
@@ -5592,7 +5673,7 @@ function cancelPlannerForm() {
 async function saveCommitment() {
     const id           = document.getElementById('plannerEditId').value;
     const desc         = document.getElementById('plannerDesc').value.trim();
-    const amount       = parseFloat(document.getElementById('plannerAmount').value);
+    const amount       = toCents(document.getElementById('plannerAmount').value);
     const type         = document.getElementById('plannerType').value;
     const activeMonths = document.getElementById('plannerActiveMonths').value.trim() || null;
     const dates        = document.getElementById('plannerDates').value.trim() || null;
@@ -5603,7 +5684,7 @@ async function saveCommitment() {
     const subcategoryId = subcatVal ? parseInt(subcatVal) : null;
 
     if (!desc) { showMessage('error', 'Description is required'); return; }
-    if (isNaN(amount) || amount <= 0) { showMessage('error', 'Enter a valid amount'); return; }
+    if (!amount || amount <= 0) { showMessage('error', 'Enter a valid amount'); return; }
     if (type === 'term' && !dates) { showMessage('error', 'Enter at least one payment date'); return; }
 
     if (type === 'term' && dates) {
@@ -5707,13 +5788,13 @@ function loadFinancialHealth() {
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:12px;">
             <div>
                 <div style="font-size:11px; color:#7f8c8d; margin-bottom:4px;">CURRENT BALANCE (${accountName})</div>
-                <div style="font-size:24px; font-weight:700; color:#2c3e50;">$${balance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                <div style="font-size:24px; font-weight:700; color:#2c3e50;">$${fmtMoneyLocale(balance)}</div>
                 <div style="font-size:11px; color:#95a5a6; margin-top:2px;">As of ${asOfDate}</div>
             </div>
             <div>
                 <div style="font-size:11px; color:#7f8c8d; margin-bottom:4px;">6-MONTH EMERGENCY FUND</div>
-                <div style="font-size:24px; font-weight:700; color:#7f8c8d;">$${emergencyFundTarget.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                <div style="font-size:11px; color:#95a5a6; margin-top:2px;">$${monthlyBurn.toFixed(2)} × 6 months</div>
+                <div style="font-size:24px; font-weight:700; color:#7f8c8d;">$${fmtMoneyLocale(emergencyFundTarget)}</div>
+                <div style="font-size:11px; color:#95a5a6; margin-top:2px;">$${fmtMoney(monthlyBurn)} × 6 months</div>
             </div>
         </div>
         ${totalScheduled > 0 ? `
@@ -5721,7 +5802,7 @@ function loadFinancialHealth() {
             <div style="font-size:12px; font-weight:600; margin-bottom:4px;">After Scheduled Activities:</div>
             <div style="display:flex; justify-content:space-between; font-size:13px;">
                 <span>Projected Balance:</span>
-                <strong style="color:${projectedBalance < emergencyFundTarget ? '#e74c3c' : '#27ae60'};">$${projectedBalance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>
+                <strong style="color:${projectedBalance < emergencyFundTarget ? '#e74c3c' : '#27ae60'};">$${fmtMoneyLocale(projectedBalance)}</strong>
             </div>
             <div style="display:flex; justify-content:space-between; font-size:13px; margin-top:4px;">
                 <span>Emergency Fund Coverage:</span>
@@ -5785,7 +5866,7 @@ function cancelBalanceForm() {
 
 function saveBalance() {
     const accountName = document.getElementById('balanceAccountName').value.trim();
-    const amount = parseFloat(document.getElementById('balanceAmount').value);
+    const amount = toCents(document.getElementById('balanceAmount').value);
     const asOfDate = document.getElementById('balanceDate').value;
 
     if (!accountName || !amount || !asOfDate) {
@@ -5877,13 +5958,15 @@ function selectTemplate(idx) {
     document.getElementById('activityName').value = tpl.name;
     document.getElementById('activityType').value = tpl.type;
 
-    // Clear and populate items
+    // Clear and populate items. Template amounts are decimal dollars (literal
+    // hard-coded values above); convert to integer cents so activityItemsData
+    // matches the DB convention everywhere else.
     activityItemsData = tpl.items.map(item => {
         const categoryId = item.category ? dbHelpers.queryValue('SELECT id FROM categories WHERE name = ?', [item.category]) : null;
         return {
             description: item.description,
             category_id: categoryId,
-            amount: item.amount
+            amount: toCents(item.amount)
         };
     });
     renderActivityItems();
@@ -5941,8 +6024,8 @@ function renderActivityItems() {
                 ${categoryOptions}
             </select>
             ` : ''}
-            <input type="number" placeholder="0.00" min="0" step="0.01" value="${item.amount || ''}" 
-                   onchange="activityItemsData[${idx}].amount = parseFloat(this.value) || 0" 
+            <input type="number" placeholder="0.00" min="0" step="0.01" value="${item.amount ? fromCents(item.amount) : ''}"
+                   onchange="activityItemsData[${idx}].amount = toCents(this.value)"
                    style="padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:13px;">
             <button onclick="removeActivityItem(${idx})" class="danger-btn" style="padding:6px 10px; font-size:12px;">×</button>
         </div>
@@ -6046,7 +6129,7 @@ function loadUnscheduledActivities() {
             ORDER BY COALESCE(c.name, 'zzz'), ai.description
         `, [id]);
 
-        const itemsSummary = items.map(i => `${i[0]}: $${i[2].toFixed(0)}`).join(' • ');
+        const itemsSummary = items.map(i => `${i[0]}: $${fromCents(i[2]).toFixed(0)}`).join(' • ');
 
         return `
             <div style="border:1px solid #dee2e6; border-radius:6px; padding:12px; margin-bottom:8px; background:white;">
@@ -6056,7 +6139,7 @@ function loadUnscheduledActivities() {
                         <div style="font-size:12px; color:#7f8c8d; margin-top:4px;">${itemsSummary}</div>
                         ${notes ? `<div style="font-size:11px; color:#95a5a6; margin-top:4px; font-style:italic;">${escapeHtml(notes)}</div>` : ''}
                     </div>
-                    <div style="font-weight:700; color:#3498db; font-size:16px;">$${total.toFixed(2)}</div>
+                    <div style="font-weight:700; color:#3498db; font-size:16px;">$${fmtMoney(total)}</div>
                 </div>
                 <div style="display:flex; gap:6px; margin-top:8px;">
                     <button onclick="scheduleActivity(${id})" class="secondary-btn" style="padding:4px 10px; font-size:12px;">📅 Schedule</button>
@@ -6102,7 +6185,7 @@ function loadScheduledActivities() {
             <div style="border:1px solid #3498db; border-radius:8px; padding:16px; margin-bottom:16px;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                     <h5 style="margin:0; color:#3498db;">${monthLabel}</h5>
-                    <div style="font-weight:700; color:#3498db; font-size:16px;">Total: $${monthTotal.toFixed(2)}</div>
+                    <div style="font-weight:700; color:#3498db; font-size:16px;">Total: $${fmtMoney(monthTotal)}</div>
                 </div>
                 ${monthActivities.map(activity => {
                     const [id, name, type, , notes, total] = activity;
@@ -6116,7 +6199,7 @@ function loadScheduledActivities() {
                         ORDER BY COALESCE(c.name, 'zzz'), ai.description
                     `, [id]);
 
-                    const itemsSummary = items.map(i => `${i[0]}: $${i[2].toFixed(0)}`).join(' • ');
+                    const itemsSummary = items.map(i => `${i[0]}: $${fromCents(i[2]).toFixed(0)}`).join(' • ');
 
                     return `
                         <div style="background:#f8f9fa; border-radius:6px; padding:12px; margin-bottom:8px;">
@@ -6126,7 +6209,7 @@ function loadScheduledActivities() {
                                     <div style="font-size:12px; color:#7f8c8d; margin-top:4px;">${itemsSummary}</div>
                                     ${notes ? `<div style="font-size:11px; color:#95a5a6; margin-top:4px; font-style:italic;">${escapeHtml(notes)}</div>` : ''}
                                 </div>
-                                <div style="font-weight:700; color:#3498db; font-size:16px; margin-left:12px;">$${total.toFixed(2)}</div>
+                                <div style="font-weight:700; color:#3498db; font-size:16px; margin-left:12px;">$${fmtMoney(total)}</div>
                             </div>
                             <div style="display:flex; gap:6px; margin-top:8px;">
                                 <button onclick="unscheduleActivity(${id})" class="secondary-btn" style="padding:4px 10px; font-size:12px;">↩️ Unschedule</button>
@@ -6202,7 +6285,7 @@ function deleteActivity(id) {
 }
 
 async function savePlannerVariable() {
-    const val = parseFloat(document.getElementById('plannerVariableSpend').value) || 0;
+    const val = toCents(document.getElementById('plannerVariableSpend').value);
     dbHelpers.safeRun(`
         INSERT INTO planner_settings (key, value) VALUES ('variable_spend', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
@@ -6377,11 +6460,11 @@ function renderMonthView() {
             b += `<span style="font-size:14px;">${escapeHtml(c.cat_icon)}</span>`;
             b += `<div><div style="font-weight:600; color:#2c3e50;">${escapeHtml(c.description)}</div>`;
             b += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(c.cat_name)}</div></div>`;
-            b += `<span style="color:${accentColor}; font-weight:700; margin-left:4px;">S$${monthAmt.toFixed(2)}</span>`;
+            b += `<span style="color:${accentColor}; font-weight:700; margin-left:4px;">S$${fmtMoney(monthAmt)}</span>`;
             b += `</div>`;
         });
         b += `</div>`;
-        b += `<div style="margin-top:8px; font-size:12px; color:#7f8c8d;">Total this month: <strong style="color:${accentColor};">S$${total.toFixed(2)}</strong></div>`;
+        b += `<div style="margin-top:8px; font-size:12px; color:#7f8c8d;">Total this month: <strong style="color:${accentColor};">S$${fmtMoney(total)}</strong></div>`;
         b += `</div>`;
         return b;
     }
@@ -6438,8 +6521,8 @@ function renderMonthView() {
             const income = dayTx.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
             html += `<div style="background:#e8f4fd; border-left:3px solid #3498db; border-radius:2px; padding:2px 4px; margin-bottom:2px; font-size:10px; white-space:nowrap; overflow:hidden;">`;
             html += `<span style="color:#3498db; font-weight:600;">${dayTx.length}tx</span>`;
-            if (spend  > 0) html += ` <span style="color:#e74c3c;">-${spend.toFixed(0)}</span>`;
-            if (income > 0) html += ` <span style="color:#27ae60;">+${income.toFixed(0)}</span>`;
+            if (spend  > 0) html += ` <span style="color:#e74c3c;">-${fromCents(spend).toFixed(0)}</span>`;
+            if (income > 0) html += ` <span style="color:#27ae60;">+${fromCents(income).toFixed(0)}</span>`;
             html += `</div>`;
         }
 
@@ -6448,7 +6531,7 @@ function renderMonthView() {
             const spend = dayManual.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
             html += `<div style="background:#fff3e0; border-left:3px solid #e67e22; border-radius:2px; padding:2px 4px; margin-bottom:2px; font-size:10px; white-space:nowrap; overflow:hidden;">`;
             html += `<span style="color:#e67e22; font-weight:600;">${dayManual.length}m</span>`;
-            if (spend > 0) html += ` <span style="color:#e74c3c;">-${spend.toFixed(0)}</span>`;
+            if (spend > 0) html += ` <span style="color:#e74c3c;">-${fromCents(spend).toFixed(0)}</span>`;
             html += `</div>`;
         }
 
@@ -6457,7 +6540,7 @@ function renderMonthView() {
             dayCommitments.slice(0, 2).forEach(c => {
                 const label = c.description.length > 10 ? c.description.substring(0, 10) + '…' : c.description;
                 html += `<div style="background:#f3eeff; border-left:3px solid #9b59b6; border-radius:2px; padding:2px 4px; margin-bottom:2px; font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">`;
-                html += `<span style="color:#9b59b6; font-weight:600;">S$${c.amount.toFixed(0)}</span> <span style="color:#5d3a8a; font-size:9px;">${escapeHtml(label)}</span>`;
+                html += `<span style="color:#9b59b6; font-weight:600;">S$${fromCents(c.amount).toFixed(0)}</span> <span style="color:#5d3a8a; font-size:9px;">${escapeHtml(label)}</span>`;
                 html += `</div>`;
             });
             if (dayCommitments.length > 2) {
@@ -6469,7 +6552,7 @@ function renderMonthView() {
         if (dayWorkday.length) {
             const wdTotal = dayWorkday.reduce((s, c) => s + c.amount, 0);
             html += `<div style="background:#e8f8f5; border-left:3px solid #16a085; border-radius:2px; padding:2px 4px; margin-bottom:2px; font-size:10px; white-space:nowrap; overflow:hidden;">`;
-            html += `<span style="color:#16a085; font-weight:600;">💼 S$${wdTotal.toFixed(0)}</span>`;
+            html += `<span style="color:#16a085; font-weight:600;">💼 S$${fromCents(wdTotal).toFixed(0)}</span>`;
             html += `</div>`;
         }
 
@@ -6477,7 +6560,7 @@ function renderMonthView() {
         if (dayNonwkd.length) {
             const nwTotal = dayNonwkd.reduce((s, c) => s + c.amount, 0);
             html += `<div style="background:#fef0e7; border-left:3px solid #d35400; border-radius:2px; padding:2px 4px; margin-bottom:2px; font-size:10px; white-space:nowrap; overflow:hidden;">`;
-            html += `<span style="color:#d35400; font-weight:600;">🏖️ S$${nwTotal.toFixed(0)}</span>`;
+            html += `<span style="color:#d35400; font-weight:600;">🏖️ S$${fromCents(nwTotal).toFixed(0)}</span>`;
             html += `</div>`;
         }
 
@@ -6593,8 +6676,8 @@ function showPlannerDayDetail(dateStr) {
         html += `<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">`;
         html += `<span style="font-size:11px; font-weight:700; color:#3498db; text-transform:uppercase; letter-spacing:0.5px;">🏦 Bank Transactions (${txRows.length})</span>`;
         html += `<span style="font-size:12px;">`;
-        if (totalSpend  > 0) html += `<span style="color:#e74c3c;">-S$${totalSpend.toFixed(2)}</span> `;
-        if (totalIncome > 0) html += `<span style="color:#27ae60;">+S$${totalIncome.toFixed(2)}</span>`;
+        if (totalSpend  > 0) html += `<span style="color:#e74c3c;">-S$${fmtMoney(totalSpend)}</span> `;
+        if (totalIncome > 0) html += `<span style="color:#27ae60;">+S$${fmtMoney(totalIncome)}</span>`;
         html += `</span></div>`;
         txRows.forEach(([desc, amount, catName, catIcon, catColor, subcatName]) => {
             const isSpend = amount < 0;
@@ -6603,7 +6686,7 @@ function showPlannerDayDetail(dateStr) {
             html += `<div style="font-size:12px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(desc)}</div>`;
             html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(catIcon || '📦')} ${escapeHtml(catName || 'Uncategorised')}${subcatName ? ` › ${escapeHtml(subcatName)}` : ''}</div>`;
             html += `</div>`;
-            html += `<span style="font-size:13px; font-weight:700; color:${isSpend ? '#e74c3c' : '#27ae60'}; white-space:nowrap;">${isSpend ? '-' : '+'}S$${Math.abs(amount).toFixed(2)}</span>`;
+            html += `<span style="font-size:13px; font-weight:700; color:${isSpend ? '#e74c3c' : '#27ae60'}; white-space:nowrap;">${isSpend ? '-' : '+'}S$${fmtMoney(amount)}</span>`;
             html += `</div>`;
         });
         html += `</div>`;
@@ -6615,7 +6698,7 @@ function showPlannerDayDetail(dateStr) {
         html += `<div style="margin-bottom:14px;">`;
         html += `<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">`;
         html += `<span style="font-size:11px; font-weight:700; color:#e67e22; text-transform:uppercase; letter-spacing:0.5px;">✏️ Manual Transactions (${manualRows.length})</span>`;
-        if (totalSpend > 0) html += `<span style="font-size:12px; color:#e74c3c;">-S$${totalSpend.toFixed(2)}</span>`;
+        if (totalSpend > 0) html += `<span style="font-size:12px; color:#e74c3c;">-S$${fmtMoney(totalSpend)}</span>`;
         html += `</div>`;
         manualRows.forEach(([desc, amount, catName, catIcon, catColor, subcatName]) => {
             const isSpend = amount < 0;
@@ -6624,7 +6707,7 @@ function showPlannerDayDetail(dateStr) {
             html += `<div style="font-size:12px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(desc)}</div>`;
             html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(catIcon || '📦')} ${escapeHtml(catName || 'Uncategorised')}${subcatName ? ` › ${escapeHtml(subcatName)}` : ''}</div>`;
             html += `</div>`;
-            html += `<span style="font-size:13px; font-weight:700; color:${isSpend ? '#e74c3c' : '#27ae60'}; white-space:nowrap;">${isSpend ? '-' : '+'}S$${Math.abs(amount).toFixed(2)}</span>`;
+            html += `<span style="font-size:13px; font-weight:700; color:${isSpend ? '#e74c3c' : '#27ae60'}; white-space:nowrap;">${isSpend ? '-' : '+'}S$${fmtMoney(amount)}</span>`;
             html += `</div>`;
         });
         html += `</div>`;
@@ -6636,7 +6719,7 @@ function showPlannerDayDetail(dateStr) {
         html += `<div style="margin-bottom:14px;">`;
         html += `<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">`;
         html += `<span style="font-size:11px; font-weight:700; color:#9b59b6; text-transform:uppercase; letter-spacing:0.5px;">📅 Expected Commitments (${dayCommitments.length})</span>`;
-        html += `<span style="font-size:12px; color:#9b59b6; font-weight:600;">S$${total.toFixed(2)}</span>`;
+        html += `<span style="font-size:12px; color:#9b59b6; font-weight:600;">S$${fmtMoney(total)}</span>`;
         html += `</div>`;
         dayCommitments.forEach(c => {
             html += `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; background:#f9f0ff; border-radius:4px; margin-bottom:3px; border-left:3px solid #9b59b6;">`;
@@ -6645,7 +6728,7 @@ function showPlannerDayDetail(dateStr) {
             html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(c.cat_icon)} ${escapeHtml(c.cat_name)}${c.notes ? ` · ${escapeHtml(c.notes)}` : ''}</div>`;
             html += `</div>`;
             html += `<div style="display:flex; align-items:center; gap:6px; white-space:nowrap;">`;
-            html += `<span style="font-size:13px; font-weight:700; color:#9b59b6;">S$${c.amount.toFixed(2)}</span>`;
+            html += `<span style="font-size:13px; font-weight:700; color:#9b59b6;">S$${fmtMoney(c.amount)}</span>`;
             html += `<button class="secondary-btn" style="padding:2px 7px; font-size:11px;" onclick="openEditCommitment(${c.id})">Edit</button>`;
             html += `<button class="danger-btn" style="padding:2px 7px; font-size:11px;" onclick="deleteCommitment(${c.id})">Del</button>`;
             html += `</div>`;
@@ -6660,7 +6743,7 @@ function showPlannerDayDetail(dateStr) {
         html += `<div style="margin-bottom:14px;">`;
         html += `<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">`;
         html += `<span style="font-size:11px; font-weight:700; color:#16a085; text-transform:uppercase; letter-spacing:0.5px;">💼 Workday Costs (${dayWorkdayItems.length})</span>`;
-        html += `<span style="font-size:12px; color:#16a085; font-weight:600;">S$${total.toFixed(2)}</span>`;
+        html += `<span style="font-size:12px; color:#16a085; font-weight:600;">S$${fmtMoney(total)}</span>`;
         html += `</div>`;
         dayWorkdayItems.forEach(c => {
             html += `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; background:#e8f8f5; border-radius:4px; margin-bottom:3px; border-left:3px solid #16a085;">`;
@@ -6669,7 +6752,7 @@ function showPlannerDayDetail(dateStr) {
             html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(c.cat_icon)} ${escapeHtml(c.cat_name)}${c.notes ? ` · ${escapeHtml(c.notes)}` : ''}</div>`;
             html += `</div>`;
             html += `<div style="display:flex; align-items:center; gap:6px; white-space:nowrap;">`;
-            html += `<span style="font-size:13px; font-weight:700; color:#16a085;">S$${c.amount.toFixed(2)}</span>`;
+            html += `<span style="font-size:13px; font-weight:700; color:#16a085;">S$${fmtMoney(c.amount)}</span>`;
             html += `<button class="secondary-btn" style="padding:2px 7px; font-size:11px;" onclick="openEditCommitment(${c.id})">Edit</button>`;
             html += `<button class="danger-btn" style="padding:2px 7px; font-size:11px;" onclick="deleteCommitment(${c.id})">Del</button>`;
             html += `</div>`;
@@ -6684,7 +6767,7 @@ function showPlannerDayDetail(dateStr) {
         html += `<div style="margin-bottom:14px;">`;
         html += `<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">`;
         html += `<span style="font-size:11px; font-weight:700; color:#d35400; text-transform:uppercase; letter-spacing:0.5px;">🏖️ Non-workday Costs (${dayNonwkdItems.length})</span>`;
-        html += `<span style="font-size:12px; color:#d35400; font-weight:600;">S$${total.toFixed(2)}</span>`;
+        html += `<span style="font-size:12px; color:#d35400; font-weight:600;">S$${fmtMoney(total)}</span>`;
         html += `</div>`;
         dayNonwkdItems.forEach(c => {
             html += `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; background:#fef0e7; border-radius:4px; margin-bottom:3px; border-left:3px solid #d35400;">`;
@@ -6693,7 +6776,7 @@ function showPlannerDayDetail(dateStr) {
             html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(c.cat_icon)} ${escapeHtml(c.cat_name)}${c.notes ? ` · ${escapeHtml(c.notes)}` : ''}</div>`;
             html += `</div>`;
             html += `<div style="display:flex; align-items:center; gap:6px; white-space:nowrap;">`;
-            html += `<span style="font-size:13px; font-weight:700; color:#d35400;">S$${c.amount.toFixed(2)}</span>`;
+            html += `<span style="font-size:13px; font-weight:700; color:#d35400;">S$${fmtMoney(c.amount)}</span>`;
             html += `<button class="secondary-btn" style="padding:2px 7px; font-size:11px;" onclick="openEditCommitment(${c.id})">Edit</button>`;
             html += `<button class="danger-btn" style="padding:2px 7px; font-size:11px;" onclick="deleteCommitment(${c.id})">Del</button>`;
             html += `</div>`;

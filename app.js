@@ -681,8 +681,8 @@ function resetFileSelection() {
 
 function populateBankProfileSelector() {
     const select = document.getElementById('bankProfileSelect');
-    select.innerHTML = bankProfiles.map((profile, idx) => 
-        `<option value="${idx}">${profile.name}</option>`
+    select.innerHTML = bankProfiles.map((profile, idx) =>
+        `<option value="${idx}">${escapeHtml(profile.name)}</option>`
     ).join('');
     updateAccountOptions();
     syncDateFormatDropdown();
@@ -998,7 +998,7 @@ function updateAccountOptions() {
             const accountName = row[1];
             const accountNumber = row[2];
             const displayName = accountNumber ? `${accountName} (...${accountNumber})` : accountName;
-            select.innerHTML += `<option value="${accountId}">${displayName}</option>`;
+            select.innerHTML += `<option value="${accountId}">${escapeHtml(displayName)}</option>`;
         });
         // Auto-select the first account
         select.value = accountsResult[0].values[0][0];
@@ -1306,7 +1306,7 @@ function updateEditSubcategoryOptions(transactionId) {
         result[0].values.forEach(row => {
             const id = row[0];
             const name = row[1];
-            select.innerHTML += `<option value="${id}">${name}</option>`;
+            select.innerHTML += `<option value="${id}">${escapeHtml(name)}</option>`;
         });
     }
 }
@@ -1566,13 +1566,10 @@ function normalizeDate(dateStr, format) {
         }
     }
 
-    // Fall back to browser parsing but extract parts to avoid UTC shift
-    const d = new Date(s);
-    if (!isNaN(d)) {
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        return `${d.getFullYear()}-${mm}-${dd}`;
-    }
+    // No more guesses. `new Date(s)` is locale-dependent for ambiguous strings
+    // like "01/02/2025" (US: Jan 2, UK: Feb 1) and would silently corrupt
+    // imports from foreign banks. Bail so the caller surfaces the problem and
+    // the user can pick an explicit format on the bank profile.
     return null;
 }
 
@@ -1787,7 +1784,8 @@ function updateBankFilter() {
 
     if (result.length > 0) {
         result[0].values.forEach(row => {
-            select.innerHTML += `<option value="${row[0]}">${row[0]}</option>`;
+            const name = escapeHtml(row[0]);
+            select.innerHTML += `<option value="${name}">${name}</option>`;
         });
     }
 
@@ -1828,7 +1826,7 @@ function updateAccountFilter() {
             const displayName = bankName
                 ? (accountNumber ? `${accountName} (...${accountNumber})` : accountName)
                 : (accountNumber ? `${bank} - ${accountName} (...${accountNumber})` : `${bank} - ${accountName}`);
-            select.innerHTML += `<option value="${accountId}">${displayName}</option>`;
+            select.innerHTML += `<option value="${accountId}">${escapeHtml(displayName)}</option>`;
         });
     }
 
@@ -1853,7 +1851,7 @@ function updateCategoryFilter() {
         result[0].values.forEach(row => {
             const categoryId = row[0];
             const categoryName = row[1];
-            select.innerHTML += `<option value="${categoryId}">${categoryName}</option>`;
+            select.innerHTML += `<option value="${categoryId}">${escapeHtml(categoryName)}</option>`;
         });
     }
 
@@ -1884,7 +1882,7 @@ function updateSubcategoryFilter() {
         result[0].values.forEach(row => {
             const subId = row[0];
             const subName = row[1];
-            select.innerHTML += `<option value="${subId}">${subName}</option>`;
+            select.innerHTML += `<option value="${subId}">${escapeHtml(subName)}</option>`;
         });
     }
 }
@@ -3843,14 +3841,24 @@ async function loadBankProfiles() {
         createDefaultProfiles();
     }
 
-    // Migrate from localStorage if present and DB is empty
+    // Migrate from localStorage if present and DB is empty.
+    // Wrap parse in try/catch — a hand-edited or partially-written legacy
+    // value would otherwise throw and stall app initialization.
     const saved = localStorage.getItem('bankProfiles');
     if (saved && bankProfiles.length === 0) {
-        const oldProfiles = JSON.parse(saved);
-        oldProfiles.forEach(profile => saveBankProfileToDB(profile));
-        localStorage.removeItem('bankProfiles');
-        loadBankProfiles();
-        return;
+        let oldProfiles;
+        try {
+            oldProfiles = JSON.parse(saved);
+        } catch (e) {
+            localStorage.removeItem('bankProfiles');
+            oldProfiles = null;
+        }
+        if (Array.isArray(oldProfiles) && oldProfiles.length > 0) {
+            oldProfiles.forEach(profile => saveBankProfileToDB(profile));
+            localStorage.removeItem('bankProfiles');
+            loadBankProfiles();
+            return;
+        }
     }
 
     renderBankProfiles();

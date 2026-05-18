@@ -1604,10 +1604,48 @@ function normalizeDate(dateStr, format) {
         }
     }
 
-    // No more guesses. `new Date(s)` is locale-dependent for ambiguous strings
-    // like "01/02/2025" (US: Jan 2, UK: Feb 1) and would silently corrupt
-    // imports from foreign banks. Bail so the caller surfaces the problem and
-    // the user can pick an explicit format on the bank profile.
+    // Auto-detect: numeric formats with `/`, `-`, or `.` separators.
+    // Handles DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, MM-DD-YYYY, plus 2-digit
+    // year variants and YYYY/MM/DD. Locale-independent: we never call
+    // `new Date(s)`, which would interpret "01/02/2025" differently per
+    // browser locale. For truly ambiguous cases (both parts ≤ 12) we default
+    // to DD/MM/YYYY (the international convention). Users with a US-style
+    // bank can pin MM/DD/YYYY on the bank profile.
+    const numMatch = s.match(/^(\d{1,4})([/.\-])(\d{1,2})\2(\d{1,4})$/);
+    if (numMatch) {
+        const a = parseInt(numMatch[1], 10);
+        const b = parseInt(numMatch[3], 10);
+        const c = parseInt(numMatch[4], 10);
+        let day, month, year;
+
+        if (numMatch[1].length === 4) {
+            // YYYY-MM-DD style with non-hyphen separator (e.g. 2025/01/31)
+            year = a;
+            month = b;
+            day = c;
+        } else {
+            year = numMatch[4].length <= 2 && c < 100
+                ? (c < 50 ? 2000 + c : 1900 + c)
+                : c;
+            if (a > 12 && b <= 12) {
+                day = a; month = b;          // unambiguous DD/MM
+            } else if (b > 12 && a <= 12) {
+                day = b; month = a;          // unambiguous MM/DD
+            } else if (a <= 12 && b <= 12) {
+                day = a; month = b;          // ambiguous → default DD/MM
+            } else {
+                return null;
+            }
+        }
+        if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+        return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    }
+
+    // Unrecognised format. We deliberately do NOT fall back to `new Date(s)`
+    // — that parse is locale-dependent and would silently corrupt foreign
+    // bank imports. The caller surfaces this via the `parseErrors` count in
+    // the import preview; the user can pin an explicit format on the bank
+    // profile.
     return null;
 }
 

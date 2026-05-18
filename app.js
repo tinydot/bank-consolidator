@@ -1588,15 +1588,20 @@ function normalizeDate(dateStr, format) {
         return `${year}-${mm}-${dd}`;
     }
 
+    // Trailing time / extra text tolerance: many bank exports append a
+    // timestamp (e.g. "27/04/2026 10:30:00") or a status word. Strip
+    // anything after the first whitespace before running numeric matchers.
+    const dateOnly = s.split(/\s+/)[0];
+
     // Auto-detect: try ISO YYYY-MM-DD first (safe, no timezone shift)
-    const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const isoMatch = dateOnly.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
 
     // Auto-detect: DD-Mon-YY / DD-Mon-YYYY (e.g. 16-Feb-26)
-    const monMatch = s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
+    const monMatch = dateOnly.match(/^(\d{1,2})-([A-Za-z]{3,})-(\d{2,4})$/);
     if (monMatch) {
         const day   = parseInt(monMatch[1], 10);
-        const month = MONTHS[monMatch[2].toLowerCase()];
+        const month = MONTHS[monMatch[2].slice(0, 3).toLowerCase()];
         let   year  = parseInt(monMatch[3], 10);
         if (month) {
             if (year < 100) year = year < 50 ? 2000 + year : 1900 + year;
@@ -1611,7 +1616,7 @@ function normalizeDate(dateStr, format) {
     // browser locale. For truly ambiguous cases (both parts ≤ 12) we default
     // to DD/MM/YYYY (the international convention). Users with a US-style
     // bank can pin MM/DD/YYYY on the bank profile.
-    const numMatch = s.match(/^(\d{1,4})([/.\-])(\d{1,2})\2(\d{1,4})$/);
+    const numMatch = dateOnly.match(/^(\d{1,4})([/.\-])(\d{1,2})\2(\d{1,4})$/);
     if (numMatch) {
         const a = parseInt(numMatch[1], 10);
         const b = parseInt(numMatch[3], 10);
@@ -1639,6 +1644,36 @@ function normalizeDate(dateStr, format) {
         }
         if (month < 1 || month > 12 || day < 1 || day > 31) return null;
         return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    }
+
+    // Space-separated word-month forms. Use the un-trimmed `s` here because
+    // these intentionally contain a space. Three shapes:
+    //   "DD Mon YYYY"    e.g. 27 Apr 2026 / 27 April 2026 / 27 Apr 26
+    //   "Mon DD YYYY"    e.g. Apr 27 2026 / April 27 2026
+    //   "Mon DD, YYYY"   e.g. Apr 27, 2026 / April 27, 2026
+    const dmyWord = s.match(/^(\d{1,2})[\s/-]+([A-Za-z]{3,})[\s/-]+(\d{2,4})$/);
+    if (dmyWord) {
+        const day   = parseInt(dmyWord[1], 10);
+        const month = MONTHS[dmyWord[2].slice(0, 3).toLowerCase()];
+        let   year  = parseInt(dmyWord[3], 10);
+        if (month) {
+            if (year < 100) year = year < 50 ? 2000 + year : 1900 + year;
+            if (day >= 1 && day <= 31) {
+                return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            }
+        }
+    }
+    const mdyWord = s.match(/^([A-Za-z]{3,})[\s/-]+(\d{1,2}),?[\s/-]+(\d{2,4})$/);
+    if (mdyWord) {
+        const month = MONTHS[mdyWord[1].slice(0, 3).toLowerCase()];
+        const day   = parseInt(mdyWord[2], 10);
+        let   year  = parseInt(mdyWord[3], 10);
+        if (month) {
+            if (year < 100) year = year < 50 ? 2000 + year : 1900 + year;
+            if (day >= 1 && day <= 31) {
+                return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            }
+        }
     }
 
     // Unrecognised format. We deliberately do NOT fall back to `new Date(s)`

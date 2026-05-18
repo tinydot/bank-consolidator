@@ -298,12 +298,39 @@ async function initSQLite() {
         db = new SQL.Database(localBackup);
         createTables();
         migrateMoneyToCents();
+        migrateBankDateFormats();
         await saveDatabaseToIndexedDB();
     } else {
         db = savedDb ? new SQL.Database(new Uint8Array(savedDb)) : new SQL.Database();
         createTables();
         migrateMoneyToCents();
+        migrateBankDateFormats();
     }
+}
+
+// One-shot migration: set explicit date formats on known US bank profiles
+// that were created before d6e4e5d removed the locale-dependent new Date()
+// fallback. Profiles with dateFormat='auto' and a recognised bank name are
+// updated to MM/DD/YYYY (the actual format all four default US banks export).
+function migrateBankDateFormats() {
+    let done = false;
+    try {
+        const r = db.exec(`SELECT value FROM settings WHERE key = 'migration_bank_date_formats'`);
+        done = r.length > 0 && r[0].values.length > 0 && r[0].values[0][0] === 'done';
+    } catch (e) { /* settings table missing — first run */ }
+    if (done) return;
+
+    const usBanks = ['Chase', 'Bank of America', 'Wells Fargo', 'Citibank (No Header)'];
+    for (const name of usBanks) {
+        try {
+            db.run(
+                `UPDATE banks SET date_format = 'MM/DD/YYYY' WHERE name = ? AND date_format = 'auto'`,
+                [name]
+            );
+        } catch (e) { /* banks table absent — nothing to do */ }
+    }
+
+    db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('migration_bank_date_formats', 'done')`);
 }
 
 // One-shot migration converting every persisted money column from REAL
@@ -3945,7 +3972,8 @@ function createDefaultProfiles() {
             descriptionColumn: 'Description',
             amountColumn: 'Amount',
             creditColumn: '',
-            debitColumn: ''
+            debitColumn: '',
+            dateFormat: 'MM/DD/YYYY'
         },
         {
             name: 'Bank of America',
@@ -3955,7 +3983,8 @@ function createDefaultProfiles() {
             descriptionColumn: 'Description',
             amountColumn: 'Amount',
             creditColumn: '',
-            debitColumn: ''
+            debitColumn: '',
+            dateFormat: 'MM/DD/YYYY'
         },
         {
             name: 'Wells Fargo',
@@ -3965,7 +3994,8 @@ function createDefaultProfiles() {
             descriptionColumn: 'Description',
             amountColumn: 'Amount',
             creditColumn: '',
-            debitColumn: ''
+            debitColumn: '',
+            dateFormat: 'MM/DD/YYYY'
         },
         {
             name: 'Citibank (No Header)',
@@ -3975,7 +4005,8 @@ function createDefaultProfiles() {
             descriptionColumn: '2',
             amountColumn: '3',
             creditColumn: '',
-            debitColumn: ''
+            debitColumn: '',
+            dateFormat: 'MM/DD/YYYY'
         }
     ];
 

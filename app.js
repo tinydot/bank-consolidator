@@ -50,6 +50,7 @@ let uploadedFiles = [];
 let bankProfiles = [];
 let categoryChart = null;
 let currentPage = 0;
+let selectedTransactionIds = new Set();
 let previewTransactions = []; // parsed rows waiting to be imported
 let _showDuplicates = false;  // toggle state for hidden duplicate rows
 let budgetMonth = new Date().toISOString().slice(0, 7); // YYYY-MM, current month
@@ -1378,6 +1379,88 @@ async function saveTransactionCategory(transactionId) {
     showMessage('success', 'Category updated (manual override set)');
 }
 
+function showBulkEditCategory() {
+    if (selectedTransactionIds.size === 0) return;
+    const count = selectedTransactionIds.size;
+
+    const categoriesResult = db.exec('SELECT id, name FROM categories ORDER BY sort_order, name');
+    let categoriesOptions = '<option value="">-- Uncategorized --</option>';
+    if (categoriesResult.length > 0) {
+        categoriesResult[0].values.forEach(row => {
+            categoriesOptions += `<option value="${row[0]}">${escapeHtml(row[1])}</option>`;
+        });
+    }
+
+    const modalHtml = `
+        <div id="bulkEditCategoryModal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+            <div style="background: white; padding: 30px; border-radius: 8px; max-width: 420px; width: 90%;">
+                <h3 style="margin-top: 0;">Set Category for ${count} Transaction${count === 1 ? '' : 's'}</h3>
+                <p style="color:#666; font-size:14px; margin-top:0;">This will overwrite the category on all selected rows and mark them as manually categorized.</p>
+                <div class="form-group">
+                    <label>Category</label>
+                    <select id="bulkEditCategorySelect" onchange="updateBulkEditSubcategoryOptions()">
+                        ${categoriesOptions}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Subcategory</label>
+                    <select id="bulkEditSubcategorySelect">
+                        <option value="">-- None --</option>
+                    </select>
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button onclick="saveBulkTransactionCategory()">Apply to ${count} row${count === 1 ? '' : 's'}</button>
+                    <button class="secondary-btn" onclick="closeBulkEditCategoryModal()">Cancel</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function updateBulkEditSubcategoryOptions() {
+    const categoryId = document.getElementById('bulkEditCategorySelect').value;
+    const select = document.getElementById('bulkEditSubcategorySelect');
+    select.innerHTML = '<option value="">-- None --</option>';
+    if (!categoryId) return;
+    const result = db.exec('SELECT id, name FROM subcategories WHERE category_id = ? ORDER BY sort_order, name', [categoryId]);
+    if (result.length > 0) {
+        result[0].values.forEach(row => {
+            select.innerHTML += `<option value="${row[0]}">${escapeHtml(row[1])}</option>`;
+        });
+    }
+}
+
+function closeBulkEditCategoryModal() {
+    const modal = document.getElementById('bulkEditCategoryModal');
+    if (modal) modal.remove();
+}
+
+async function saveBulkTransactionCategory() {
+    const categoryId = document.getElementById('bulkEditCategorySelect').value || null;
+    const subcategoryId = document.getElementById('bulkEditSubcategorySelect').value || null;
+    const ids = Array.from(selectedTransactionIds);
+    if (ids.length === 0) {
+        closeBulkEditCategoryModal();
+        return;
+    }
+
+    const placeholders = ids.map(() => '?').join(',');
+    db.run(
+        `UPDATE transactions SET category_id = ?, subcategory_id = ?, manual_category = 1 WHERE id IN (${placeholders})`,
+        [categoryId, subcategoryId, ...ids]
+    );
+
+    const count = ids.length;
+    selectedTransactionIds.clear();
+    markDirty();
+    await loadTransactions(currentPage);
+    refreshFilters();
+    await updateAnalytics();
+    closeBulkEditCategoryModal();
+    showMessage('success', `Category updated for ${count} transaction${count === 1 ? '' : 's'} (manual override set)`);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // §5. IMPORT HISTORY
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2057,11 +2140,26 @@ function displayTransactions(result, totalCount = 0, page = 0) {
         frag.appendChild(bar);
     }
 
+    // Bulk action bar — shown when any rows are selected
+    const bulkBar = document.createElement('div');
+    bulkBar.id = 'transactionBulkBar';
+    bulkBar.style.cssText = 'display:none; justify-content:space-between; align-items:center; margin-bottom:10px; padding:10px 15px; background:#e8f4fd; border:1px solid #b3d9f2; border-radius:4px;';
+    bulkBar.innerHTML = `
+        <div><strong id="bulkSelectionCount">0</strong> selected</div>
+        <div style="display:flex; gap:10px;">
+            <button id="bulkSetCategoryBtn">Set Category…</button>
+            <button class="secondary-btn" id="bulkClearSelectionBtn">Clear Selection</button>
+        </div>
+    `;
+    frag.appendChild(bulkBar);
+
+    const pageIds = rows.map(r => r[0]);
+
     const table = document.createElement('table');
-    table.innerHTML = `<thead><tr>${
-        ['Account','Date','Description','Amount','Category','Actions']
-            .map(c => `<th>${c}</th>`).join('')
-    }</tr></thead>`;
+    table.innerHTML = `<thead><tr>
+        <th style="width:32px;"><input type="checkbox" id="bulkSelectAll" title="Select all on this page"></th>
+        ${['Account','Date','Description','Amount','Category','Actions'].map(c => `<th>${c}</th>`).join('')}
+    </tr></thead>`;
     const tbody = document.createElement('tbody');
 
     rows.forEach(row => {
@@ -2084,15 +2182,18 @@ function displayTransactions(result, totalCount = 0, page = 0) {
         const accountDisplay = `${escapeHtml(bank)} • ${escapeHtml(account)}`;
 
         // Combine category + subcategory
-        const categoryDisplay = categoryName === '-' 
-            ? '<span style="color:#95a5a6;">Uncategorized</span>' 
-            : (subcatName && subcatName !== '-' 
+        const categoryDisplay = categoryName === '-'
+            ? '<span style="color:#95a5a6;">Uncategorized</span>'
+            : (subcatName && subcatName !== '-'
                 ? `${escapeHtml(categoryName)} › ${escapeHtml(subcatName)}`
                 : escapeHtml(categoryName));
 
+        const isSelected = selectedTransactionIds.has(id);
         const tr = document.createElement('tr');
         if (ignored) tr.style.opacity = '0.5';
+        if (isSelected) tr.style.background = '#fff8d6';
         tr.innerHTML = `
+            <td><input type="checkbox" data-select-row ${isSelected ? 'checked' : ''}></td>
             <td>${accountDisplay}</td>
             <td>${date}</td>
             <td>${escapeHtml(description)}</td>
@@ -2102,6 +2203,12 @@ function displayTransactions(result, totalCount = 0, page = 0) {
         `;
         tr.querySelector('[data-cat]').addEventListener('click', () => showEditCategory(id, categoryId, subcategoryId));
         tr.querySelector('[data-toggle]').addEventListener('click', () => toggleIgnore(id, ignored ? 0 : 1));
+        tr.querySelector('[data-select-row]').addEventListener('change', e => {
+            if (e.target.checked) selectedTransactionIds.add(id);
+            else selectedTransactionIds.delete(id);
+            tr.style.background = e.target.checked ? '#fff8d6' : '';
+            updateBulkBar(pageIds);
+        });
         tbody.appendChild(tr);
     });
 
@@ -2109,6 +2216,48 @@ function displayTransactions(result, totalCount = 0, page = 0) {
     frag.appendChild(table);
     container.innerHTML = '';
     container.appendChild(frag);
+
+    // Wire up header select-all + bulk action buttons
+    const selectAll = document.getElementById('bulkSelectAll');
+    selectAll.addEventListener('change', e => {
+        const checked = e.target.checked;
+        pageIds.forEach(id => {
+            if (checked) selectedTransactionIds.add(id);
+            else selectedTransactionIds.delete(id);
+        });
+        // Re-render row visual state without re-querying the DB
+        tbody.querySelectorAll('tr').forEach((tr, i) => {
+            const cb = tr.querySelector('[data-select-row]');
+            if (cb) cb.checked = checked;
+            tr.style.background = checked ? '#fff8d6' : '';
+        });
+        updateBulkBar(pageIds);
+    });
+    document.getElementById('bulkSetCategoryBtn').addEventListener('click', showBulkEditCategory);
+    document.getElementById('bulkClearSelectionBtn').addEventListener('click', clearTransactionSelection);
+
+    updateBulkBar(pageIds);
+}
+
+function updateBulkBar(pageIds) {
+    const bar = document.getElementById('transactionBulkBar');
+    const countEl = document.getElementById('bulkSelectionCount');
+    const selectAll = document.getElementById('bulkSelectAll');
+    if (!bar) return;
+    const count = selectedTransactionIds.size;
+    bar.style.display = count > 0 ? 'flex' : 'none';
+    if (countEl) countEl.textContent = count;
+    if (selectAll && pageIds && pageIds.length) {
+        const allOnPageSelected = pageIds.every(id => selectedTransactionIds.has(id));
+        const someOnPageSelected = pageIds.some(id => selectedTransactionIds.has(id));
+        selectAll.checked = allOnPageSelected;
+        selectAll.indeterminate = !allOnPageSelected && someOnPageSelected;
+    }
+}
+
+function clearTransactionSelection() {
+    selectedTransactionIds.clear();
+    loadTransactions(currentPage);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -1446,10 +1446,16 @@ async function saveBulkTransactionCategory() {
     }
 
     const placeholders = ids.map(() => '?').join(',');
-    db.run(
-        `UPDATE transactions SET category_id = ?, subcategory_id = ?, manual_category = 1 WHERE id IN (${placeholders})`,
-        [categoryId, subcategoryId, ...ids]
-    );
+    try {
+        db.run(
+            `UPDATE transactions SET category_id = ?, subcategory_id = ?, manual_category = 1 WHERE id IN (${placeholders})`,
+            [categoryId, subcategoryId, ...ids]
+        );
+    } catch (e) {
+        console.error('Bulk category update failed:', e);
+        showMessage('error', `Failed to update categories: ${e.message}`);
+        return;
+    }
 
     const count = ids.length;
     selectedTransactionIds.clear();

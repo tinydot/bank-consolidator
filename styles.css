@@ -152,6 +152,14 @@ input, select {
     font-size: 14px;
 }
 
+input[type="checkbox"] {
+    width: auto;
+    padding: 0;
+    border: initial;
+    border-radius: 0;
+    cursor: pointer;
+}
+
 button {
     background: #3498db;
     color: white;

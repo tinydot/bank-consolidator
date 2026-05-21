@@ -203,7 +203,9 @@ function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
-    return div.innerHTML;
+    // div.innerHTML escapes & < >; also escape quotes so the result is safe
+    // inside double/single-quoted HTML attributes, not just text content.
+    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function showLoading(message = 'Loading...') {
@@ -1284,7 +1286,7 @@ function showEditCategory(transactionId, currentCategoryId, currentSubcategoryId
             const id = row[0];
             const name = row[1];
             const selected = id === currentCategoryId ? 'selected' : '';
-            categoriesOptions += `<option value="${id}" ${selected}>${name}</option>`;
+            categoriesOptions += `<option value="${id}" ${selected}>${escapeHtml(name)}</option>`;
         });
     }
 
@@ -1297,7 +1299,7 @@ function showEditCategory(transactionId, currentCategoryId, currentSubcategoryId
                 const id = row[0];
                 const name = row[1];
                 const selected = id === currentSubcategoryId ? 'selected' : '';
-                subcategoriesOptions += `<option value="${id}" ${selected}>${name}</option>`;
+                subcategoriesOptions += `<option value="${id}" ${selected}>${escapeHtml(name)}</option>`;
             });
         }
     }
@@ -3942,7 +3944,7 @@ function displayCategories(result) {
 function populateCategoryDropdowns() {
     const result = db.exec('SELECT id, name FROM categories ORDER BY sort_order, name');
     const options = result.length > 0 
-        ? result[0].values.map(row => `<option value="${row[0]}">${row[1]}</option>`).join('')
+        ? result[0].values.map(row => `<option value="${row[0]}">${escapeHtml(row[1])}</option>`).join('')
         : '<option value="">Other</option>';
 
     // Update rule form category dropdown
@@ -3965,7 +3967,7 @@ function updateRuleSubcategoryOptions() {
         result[0].values.forEach(row => {
             const id = row[0];
             const name = row[1];
-            select.innerHTML += `<option value="${id}">${name}</option>`;
+            select.innerHTML += `<option value="${id}">${escapeHtml(name)}</option>`;
         });
     }
 }
@@ -6238,7 +6240,7 @@ function renderActivityItems() {
     }
 
     const categories = dbHelpers.queryAll('SELECT id, name, icon FROM categories ORDER BY name');
-    const categoryOptions = categories.map(c => `<option value="${c[0]}">${c[2] || ''} ${c[1]}</option>`).join('');
+    const categoryOptions = categories.map(c => `<option value="${c[0]}">${escapeHtml(c[2] || '')} ${escapeHtml(c[1])}</option>`).join('');
 
     container.innerHTML = activityItemsData.map((item, idx) => `
         <div style="display:grid; grid-template-columns:${type === 'domestic' ? '2fr 2fr' : '3fr'} 1fr auto; gap:8px; margin-bottom:8px; align-items:center;">

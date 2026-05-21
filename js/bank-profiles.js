@@ -440,6 +440,10 @@ function switchTab(tab) {
     }
 }
 
+function toggleSettingsSection(headerBtn) {
+    headerBtn.closest('.settings-section').classList.toggle('collapsed');
+}
+
 function cancelUpload() {
     resetFileSelection();
 }

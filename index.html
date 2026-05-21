@@ -579,87 +579,117 @@
 
             <!-- SETTINGS TAB -->
             <div id="settings-tab" class="tab-content">
-                <h3 style="margin-bottom: 20px;">Analytics Settings</h3>
-                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
-                    <h4 style="margin-bottom: 10px;">Manual Transactions in Analytics</h4>
-                    <p style="color: #7f8c8d; font-size: 13px; margin-bottom: 15px;">
-                        Include manual transactions in analytics alongside imported bank statements. 
-                        Set a start date to avoid duplicates (typically the date after your last bank import).
-                    </p>
-                    <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
-                        <div class="form-group" style="margin: 0;">
-                            <label>
-                                <input type="checkbox" id="includeManualInAnalytics" onchange="toggleManualAnalytics()">
-                                Include manual transactions in analytics
-                            </label>
-                        </div>
-                        <div class="form-group" style="margin: 0;">
-                            <label>Start Date</label>
-                            <input type="date" id="manualAnalyticsStartDate" disabled>
-                        </div>
-                        <button onclick="saveManualAnalyticsSettings()" style="padding: 8px 16px;">Save Settings</button>
-                    </div>
-                </div>
 
-                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
-                    <h4 style="margin-bottom: 10px;">Monthly Expected Income</h4>
-                    <p style="color: #7f8c8d; font-size: 13px; margin-bottom: 15px;">
-                        Set your fixed monthly income (e.g. salary). The analytics header will use this instead of
-                        deriving income from transactions, so the "Remaining" figure is meaningful even before
-                        your salary arrives.
-                    </p>
-                    <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
-                        <div class="form-group" style="margin: 0;">
-                            <label>Monthly Income</label>
-                            <input type="number" id="monthlyExpectedIncome" placeholder="e.g. 5000" min="0" step="0.01" style="width:160px;">
+                <!-- Analytics -->
+                <div class="settings-section">
+                    <button type="button" class="settings-section-header" onclick="toggleSettingsSection(this)">
+                        <span>📊 Analytics</span>
+                        <span class="settings-section-chevron">▾</span>
+                    </button>
+                    <div class="settings-section-body">
+                        <h4 style="margin-bottom: 8px;">Manual Transactions in Analytics</h4>
+                        <p class="settings-hint">
+                            Include manual transactions in analytics alongside imported bank statements.
+                            Set a start date to avoid duplicates (typically the date after your last bank import).
+                        </p>
+                        <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+                            <div class="form-group" style="margin: 0;">
+                                <label>
+                                    <input type="checkbox" id="includeManualInAnalytics" onchange="toggleManualAnalytics()">
+                                    Include manual transactions in analytics
+                                </label>
+                            </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label>Start Date</label>
+                                <input type="date" id="manualAnalyticsStartDate" disabled>
+                            </div>
+                            <button onclick="saveManualAnalyticsSettings()" style="padding: 8px 16px;">Save Settings</button>
                         </div>
-                        <button onclick="saveMonthlyIncome()" style="padding: 8px 16px;">Save</button>
-                        <button class="secondary-btn" onclick="clearMonthlyIncome()" style="padding: 8px 16px;">Clear</button>
-                    </div>
-                </div>
 
-                <h3 style="margin-bottom: 10px;">Categories</h3>
+                        <hr class="settings-divider">
 
-                <div class="button-group" style="margin-bottom: 12px;">
-                    <button onclick="showAddCategoryForm()">+ Add Category</button>
-                </div>
-
-                <div id="addCategoryForm" style="display: none; background: #f8f9fa; padding: 12px; border-radius: 8px; margin-bottom: 12px;">
-                    <h4 style="margin-bottom: 10px;">Add New Category</h4>
-                    <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
-                        <div class="form-group" style="margin: 0; flex: 1; min-width: 140px;">
-                            <label>Category Name</label>
-                            <input type="text" id="newCategoryName" placeholder="e.g., Fitness, Subscriptions">
-                        </div>
-                        <div class="form-group" style="margin: 0; width: 100px;">
-                            <label>Icon (emoji)</label>
-                            <input type="text" id="newCategoryIcon" placeholder="e.g., 💪" maxlength="2">
-                        </div>
-                        <div class="form-group" style="margin: 0; width: 80px;">
-                            <label>Color</label>
-                            <input type="color" id="newCategoryColor" value="#3498db">
-                        </div>
-                        <div style="display: flex; gap: 8px;">
-                            <button onclick="addCategory()">Create</button>
-                            <button class="secondary-btn" onclick="cancelAddCategory()">Cancel</button>
+                        <h4 style="margin-bottom: 8px;">Monthly Expected Income</h4>
+                        <p class="settings-hint">
+                            Set your fixed monthly income (e.g. salary). The analytics header will use this instead of
+                            deriving income from transactions, so the "Remaining" figure is meaningful even before
+                            your salary arrives.
+                        </p>
+                        <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+                            <div class="form-group" style="margin: 0;">
+                                <label>Monthly Income</label>
+                                <input type="number" id="monthlyExpectedIncome" placeholder="e.g. 5000" min="0" step="0.01" style="width:160px;">
+                            </div>
+                            <button onclick="saveMonthlyIncome()" style="padding: 8px 16px;">Save</button>
+                            <button class="secondary-btn" onclick="clearMonthlyIncome()" style="padding: 8px 16px;">Clear</button>
                         </div>
                     </div>
                 </div>
 
-                <div id="categoriesListContainer"></div>
+                <!-- Categories -->
+                <div class="settings-section collapsed">
+                    <button type="button" class="settings-section-header" onclick="toggleSettingsSection(this)">
+                        <span>🏷️ Categories</span>
+                        <span class="settings-section-chevron">▾</span>
+                    </button>
+                    <div class="settings-section-body">
+                        <div class="button-group" style="margin-top: 0; margin-bottom: 12px;">
+                            <button onclick="showAddCategoryForm()">+ Add Category</button>
+                        </div>
 
-                <hr style="margin: 40px 0; border: none; border-top: 1px solid #ecf0f1;">
+                        <div id="addCategoryForm" style="display: none; background: #f8f9fa; padding: 12px; border-radius: 8px; margin-bottom: 12px;">
+                            <h4 style="margin-bottom: 10px;">Add New Category</h4>
+                            <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
+                                <div class="form-group" style="margin: 0; flex: 1; min-width: 140px;">
+                                    <label>Category Name</label>
+                                    <input type="text" id="newCategoryName" placeholder="e.g., Fitness, Subscriptions">
+                                </div>
+                                <div class="form-group" style="margin: 0; width: 100px;">
+                                    <label>Icon (emoji)</label>
+                                    <input type="text" id="newCategoryIcon" placeholder="e.g., 💪" maxlength="2">
+                                </div>
+                                <div class="form-group" style="margin: 0; width: 80px;">
+                                    <label>Color</label>
+                                    <input type="color" id="newCategoryColor" value="#3498db">
+                                </div>
+                                <div style="display: flex; gap: 8px;">
+                                    <button onclick="addCategory()">Create</button>
+                                    <button class="secondary-btn" onclick="cancelAddCategory()">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
 
-                <h3 style="margin-bottom: 20px;">Bank Profiles</h3>
-                <p style="color: #7f8c8d; margin-bottom: 20px;">Configure CSV column mappings for different banks</p>
-
-                <div id="bankProfilesList"></div>
-
-                <button onclick="addBankProfile()">+ Add New Bank Profile</button>
-                <div class="button-group" style="margin-top: 30px;">
-                    <button class="danger-btn" onclick="clearDatabase()">🗑️ Clear All Data</button>
-                    <button class="secondary-btn" onclick="importDatabase()">📂 Import Database</button>
+                        <div id="categoriesListContainer"></div>
+                    </div>
                 </div>
+
+                <!-- Bank Profiles -->
+                <div class="settings-section collapsed">
+                    <button type="button" class="settings-section-header" onclick="toggleSettingsSection(this)">
+                        <span>🏦 Bank Profiles</span>
+                        <span class="settings-section-chevron">▾</span>
+                    </button>
+                    <div class="settings-section-body">
+                        <p class="settings-hint">Configure CSV column mappings for different banks</p>
+                        <div id="bankProfilesList"></div>
+                        <button onclick="addBankProfile()">+ Add New Bank Profile</button>
+                    </div>
+                </div>
+
+                <!-- Data Management -->
+                <div class="settings-section collapsed">
+                    <button type="button" class="settings-section-header" onclick="toggleSettingsSection(this)">
+                        <span>⚙️ Data Management</span>
+                        <span class="settings-section-chevron">▾</span>
+                    </button>
+                    <div class="settings-section-body">
+                        <p class="settings-hint">Import a previously exported database, or permanently clear all data stored in this browser.</p>
+                        <div class="button-group" style="margin-top: 0;">
+                            <button class="secondary-btn" onclick="importDatabase()">📂 Import Database</button>
+                            <button class="danger-btn" onclick="clearDatabase()">🗑️ Clear All Data</button>
+                        </div>
+                    </div>
+                </div>
+
                 <input type="file" id="dbImportInput" accept=".db,.sqlite,.sqlite3" style="display: none;">
             </div>
         </div>

@@ -430,3 +430,61 @@ tr:hover {
     color: #2c3e50;
 }
 
+/* Settings accordion */
+.settings-section {
+    border: 1px solid #ecf0f1;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    overflow: hidden;
+}
+
+.settings-section-header {
+    width: 100%;
+    background: #f8f9fa;
+    color: #2c3e50;
+    border: none;
+    border-radius: 0;
+    padding: 16px 20px;
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+}
+
+.settings-section-header:hover {
+    background: #eef1f3;
+}
+
+.settings-section-chevron {
+    color: #95a5a6;
+    font-size: 12px;
+    transition: transform 0.2s;
+}
+
+.settings-section.collapsed .settings-section-chevron {
+    transform: rotate(-90deg);
+}
+
+.settings-section-body {
+    padding: 20px;
+    border-top: 1px solid #ecf0f1;
+}
+
+.settings-section.collapsed .settings-section-body {
+    display: none;
+}
+
+.settings-hint {
+    color: #7f8c8d;
+    font-size: 13px;
+    margin-bottom: 15px;
+}
+
+.settings-divider {
+    border: none;
+    border-top: 1px solid #ecf0f1;
+    margin: 24px 0;
+}
+

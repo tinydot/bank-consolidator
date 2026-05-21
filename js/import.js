@@ -799,7 +799,12 @@ function closeEditCategoryModal() {
 
 function convertToRule(description) {
     closeEditCategoryModal();
-    switchTab('rules');
+    switchTab('settings');
+    const rulesSection = document.getElementById('rulesSettingsSection');
+    if (rulesSection) {
+        rulesSection.classList.remove('collapsed');
+        rulesSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
     showAddRuleForm();
     document.getElementById('newRuleName').value = description;
     document.getElementById('newRuleKeyword').value = description;

@@ -36,8 +36,6 @@
                 <button class="tab-button active" onclick="switchTab('import')">📥 Import</button>
                 <button class="tab-button" onclick="switchTab('transactions')">💳 Transactions</button>
                 <button class="tab-button" onclick="switchTab('analytics')">📊 Analytics</button>
-                <button class="tab-button" onclick="switchTab('history')">🕑 History</button>
-                <button class="tab-button" onclick="switchTab('rules')">⚙️ Rules</button>
                 <button class="tab-button" onclick="switchTab('manual')">✏️ Manual</button>
                 <button class="tab-button" onclick="switchTab('budget')">💰 Budget</button>
                 <button class="tab-button" onclick="switchTab('planner')">📋 Planner</button>
@@ -191,80 +189,6 @@
                     <h3 style="margin-bottom: 20px;">Last Transaction Date by Account</h3>
                     <div id="lastTransactionTable"></div>
                 </div>
-            </div>
-
-            <!-- IMPORT HISTORY TAB -->
-            <div id="history-tab" class="tab-content">
-                <h3 style="margin-bottom: 20px;">Import History</h3>
-                <p style="color: #7f8c8d; margin-bottom: 20px;">View and manage your CSV imports</p>
-                <div id="importHistoryContainer"></div>
-            </div>
-
-            <!-- RULES TAB -->
-            <div id="rules-tab" class="tab-content">
-                <h3 style="margin-bottom: 20px;">Transaction Rules</h3>
-                <p style="color: #7f8c8d; margin-bottom: 20px;">Automatically ignore or categorize transactions based on keywords</p>
-                
-                <div style="background: #e8f4f8; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #3498db;">
-                    <strong>💡 How it works:</strong> Rules automatically process transactions during import:
-                    <ul style="margin: 10px 0 0 20px;">
-                        <li><strong>Auto-Ignore:</strong> Mark matching transactions as ignored</li>
-                        <li><strong>Auto-Categorize:</strong> Assign category to matching transactions (coming soon)</li>
-                    </ul>
-                </div>
-
-                <div class="button-group" style="margin-bottom: 20px;">
-                    <button onclick="showAddRuleForm()">+ Add New Rule</button>
-                    <button onclick="applyRulesToExisting()" class="secondary-btn">⚡ Apply Rules to Existing</button>
-                </div>
-
-                <div id="addRuleForm" style="display: none; background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                    <h4 style="margin-bottom: 15px;">Add New Rule</h4>
-                    <div class="form-group">
-                        <label>Rule Name</label>
-                        <input type="text" id="newRuleName" placeholder="e.g., Ignore ATM Fees">
-                    </div>
-                    <div class="form-group">
-                        <label>Keyword (description must contain)</label>
-                        <input type="text" id="newRuleKeyword" placeholder="e.g., ATM FEE, TRANSFER, STARBUCKS">
-                    </div>
-                    <div class="form-group">
-                        <label>Action</label>
-                        <select id="newRuleAction" onchange="toggleCategoryField()">
-                            <option value="ignore">Auto-Ignore</option>
-                            <option value="categorize" selected>Auto-Categorize</option>
-                        </select>
-                    </div>
-                    <div class="form-group" id="categoryFieldGroup">
-                        <label>Category</label>
-                        <select id="newRuleCategory" onchange="updateRuleSubcategoryOptions()">
-                            <!-- Populated from database -->
-                        </select>
-                    </div>
-                    <div class="form-group" id="subcategoryFieldGroup" style="display: none;">
-                        <label>Subcategory (optional)</label>
-                        <select id="newRuleSubcategory">
-                            <option value="">-- None --</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>
-                            <input type="checkbox" id="newRuleCaseSensitive">
-                            Case sensitive
-                        </label>
-                    </div>
-                    <div class="form-group">
-                        <label>Priority (higher = applied first)</label>
-                        <input type="number" id="newRulePriority" value="10" min="0" max="100">
-                        <p style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
-                            Use priority when rules might conflict. Higher priority rules are checked first.
-                        </p>
-                    </div>
-                    <button onclick="addRule()">Create Rule</button>
-                    <button class="secondary-btn" onclick="cancelAddRule()">Cancel</button>
-                </div>
-
-                <div id="rulesListContainer"></div>
             </div>
 
             <!-- MANUAL TAB -->
@@ -662,6 +586,78 @@
                     </div>
                 </div>
 
+                <!-- Rules -->
+                <div id="rulesSettingsSection" class="settings-section collapsed">
+                    <button type="button" class="settings-section-header" onclick="toggleSettingsSection(this)">
+                        <span>⚙️ Rules</span>
+                        <span class="settings-section-chevron">▾</span>
+                    </button>
+                    <div class="settings-section-body">
+                        <p class="settings-hint">Automatically ignore or categorize transactions based on keywords.</p>
+
+                        <div style="background: #e8f4f8; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #3498db;">
+                            <strong>💡 How it works:</strong> Rules automatically process transactions during import:
+                            <ul style="margin: 10px 0 0 20px;">
+                                <li><strong>Auto-Ignore:</strong> Mark matching transactions as ignored</li>
+                                <li><strong>Auto-Categorize:</strong> Assign category to matching transactions (coming soon)</li>
+                            </ul>
+                        </div>
+
+                        <div class="button-group" style="margin-top: 0; margin-bottom: 20px;">
+                            <button onclick="showAddRuleForm()">+ Add New Rule</button>
+                            <button onclick="applyRulesToExisting()" class="secondary-btn">⚡ Apply Rules to Existing</button>
+                        </div>
+
+                        <div id="addRuleForm" style="display: none; background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                            <h4 style="margin-bottom: 15px;">Add New Rule</h4>
+                            <div class="form-group">
+                                <label>Rule Name</label>
+                                <input type="text" id="newRuleName" placeholder="e.g., Ignore ATM Fees">
+                            </div>
+                            <div class="form-group">
+                                <label>Keyword (description must contain)</label>
+                                <input type="text" id="newRuleKeyword" placeholder="e.g., ATM FEE, TRANSFER, STARBUCKS">
+                            </div>
+                            <div class="form-group">
+                                <label>Action</label>
+                                <select id="newRuleAction" onchange="toggleCategoryField()">
+                                    <option value="ignore">Auto-Ignore</option>
+                                    <option value="categorize" selected>Auto-Categorize</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="categoryFieldGroup">
+                                <label>Category</label>
+                                <select id="newRuleCategory" onchange="updateRuleSubcategoryOptions()">
+                                    <!-- Populated from database -->
+                                </select>
+                            </div>
+                            <div class="form-group" id="subcategoryFieldGroup" style="display: none;">
+                                <label>Subcategory (optional)</label>
+                                <select id="newRuleSubcategory">
+                                    <option value="">-- None --</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="newRuleCaseSensitive">
+                                    Case sensitive
+                                </label>
+                            </div>
+                            <div class="form-group">
+                                <label>Priority (higher = applied first)</label>
+                                <input type="number" id="newRulePriority" value="10" min="0" max="100">
+                                <p style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
+                                    Use priority when rules might conflict. Higher priority rules are checked first.
+                                </p>
+                            </div>
+                            <button onclick="addRule()">Create Rule</button>
+                            <button class="secondary-btn" onclick="cancelAddRule()">Cancel</button>
+                        </div>
+
+                        <div id="rulesListContainer"></div>
+                    </div>
+                </div>
+
                 <!-- Bank Profiles -->
                 <div class="settings-section collapsed">
                     <button type="button" class="settings-section-header" onclick="toggleSettingsSection(this)">
@@ -675,10 +671,22 @@
                     </div>
                 </div>
 
+                <!-- Import History -->
+                <div class="settings-section collapsed">
+                    <button type="button" class="settings-section-header" onclick="toggleSettingsSection(this)">
+                        <span>🕑 Import History</span>
+                        <span class="settings-section-chevron">▾</span>
+                    </button>
+                    <div class="settings-section-body">
+                        <p class="settings-hint">View and manage your CSV imports.</p>
+                        <div id="importHistoryContainer"></div>
+                    </div>
+                </div>
+
                 <!-- Data Management -->
                 <div class="settings-section collapsed">
                     <button type="button" class="settings-section-header" onclick="toggleSettingsSection(this)">
-                        <span>⚙️ Data Management</span>
+                        <span>💾 Data Management</span>
                         <span class="settings-section-chevron">▾</span>
                     </button>
                     <div class="settings-section-body">

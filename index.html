@@ -6,13 +6,17 @@
     <title>Bank Statement Consolidator</title>
     <!--
         TO RUN FULLY OFFLINE (iPhone Safari / file:// ):
-        Keep index.html, styles.css, and app.js in the same folder — file://
-        resolves relative paths, so all three load together automatically.
+        Keep index.html, styles.css, and the js/ folder together — file://
+        resolves relative paths, so everything loads automatically.
+
+        The app code is split into js/*.js files. They are plain (non-module)
+        scripts and MUST load in the order listed before </body>.
 
         To bundle back into a single self-contained file:
         1. Download the 3 CDN libraries below and inline each as <script>…</script>.
         2. Copy styles.css contents into a <style>…</style> in the <head>.
-        3. Copy app.js contents into a <script>…</script> before </body>.
+        3. Copy each js/*.js file, in the order listed before </body>, into
+           one combined <script>…</script> before </body>.
         4. Open the single file directly in Safari — no server needed.
     -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-asm.js"></script>
@@ -661,6 +665,17 @@
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <script src="js/core.js"></script>
+    <script src="js/database.js"></script>
+    <script src="js/import.js"></script>
+    <script src="js/dates.js"></script>
+    <script src="js/transactions.js"></script>
+    <script src="js/analytics.js"></script>
+    <script src="js/categories.js"></script>
+    <script src="js/bank-profiles.js"></script>
+    <script src="js/manual-transactions.js"></script>
+    <script src="js/rules.js"></script>
+    <script src="js/budget.js"></script>
+    <script src="js/planner.js"></script>
 </body>
 </html>

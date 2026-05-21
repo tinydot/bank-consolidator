@@ -55,16 +55,26 @@ are created.
 
 ## Medium
 
-### 5. 6,700-line monolithic `app.js`
-No modules, all globals. Section banners help, but there's no enforced
-boundary between layers (DB / parsing / UI). Largest barrier to safe
-refactoring. Reasonable next step: split into ES modules and load with
-`<script type="module">` (no bundler required to stay within the no-build
-constraint in `CLAUDE.md`).
+### 5. Monolithic `app.js`
+**Status:** Fixed (see commit history).
+
+`app.js` was a single ~7,000-line file. It is now split into twelve plain
+(non-module) scripts under `js/`, loaded in dependency order by `index.html`:
+`core`, `database`, `import`, `dates`, `transactions`, `analytics`,
+`categories`, `bank-profiles`, `manual-transactions`, `rules`, `budget`,
+`planner`. The split was purely mechanical along the existing section
+banners — concatenating the files in load order reproduces the original
+file byte-for-byte — so behaviour is unchanged.
+
+Classic (non-module) scripts were chosen deliberately: they share one global
+scope, so the inline `on*=` handlers (#9) keep working and the mutable
+top-level state (`db`, `bankProfiles`, …) stays reassignable across files.
+ES modules would have broken both. Remaining debt: globals are still global,
+so there is no *enforced* layer boundary — but the code is now navigable.
 
 ### 6. Per-row duplicate-detection query during import preview
 `updateImportPreview` issues one `SELECT COUNT(*)` per preview row against
-`transactions` (`app.js` around line 825). An in-memory cache keyed on
+`transactions` (`js/import.js`). An in-memory cache keyed on
 `(date, description, amount)` reduces repeats but the worst case is still
 O(rows). A single pre-fetch of `(date, description, amount)` into a `Set` for
 the target account would be O(rows + matches).

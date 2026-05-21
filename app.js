@@ -3233,10 +3233,15 @@ function exportToCSV() {
 
     const columns = result[0].columns;
     const rows = result[0].values;
+    // `amount` is stored as integer cents — export it as decimal dollars.
+    const amountIdx = columns.indexOf('amount');
 
     let csv = columns.join(',') + '\n';
     rows.forEach(row => {
-        csv += row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',') + '\n';
+        csv += row.map((cell, i) => {
+            const value = (i === amountIdx && cell != null) ? fromCents(cell).toFixed(2) : cell;
+            return `"${String(value ?? '').replace(/"/g, '""')}"`;
+        }).join(',') + '\n';
     });
 
     downloadFile(csv, 'transactions.csv', 'text/csv');

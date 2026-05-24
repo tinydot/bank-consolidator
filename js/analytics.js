@@ -765,7 +765,7 @@ function buildTransactionSubtable(month, categoryId) {
         : 'AND t.category_id = ?';
 
     const rows = dbHelpers.queryAll(`
-        SELECT t.date, t.description, t.amount, b.name, a.account_name
+        SELECT t.date, t.description, t.amount, b.name, a.account_name, t.note
         FROM transactions t
         JOIN imports i ON t.import_id = i.id
         JOIN accounts a ON i.account_id = a.id
@@ -796,14 +796,20 @@ function buildTransactionSubtable(month, categoryId) {
     inner.appendChild(txBody);
 
     rows.forEach(row => {
-        const [date, description, amount, bank, account] = row;
+        const [date, description, amount, bank, account, note] = row;
         const amtClass = amount >= 0 ? 'transaction-positive' : 'transaction-negative';
         const amtStr = fmtMoneySigned(amount);
+
+        const descCell = note
+            ? `<div style="font-weight:500;">${escapeHtml(note)} <span style="color:#3498db;font-size:10px;">✎</span></div>
+               <div style="color:#95a5a6;font-size:11px;">${escapeHtml(description || '')}</div>`
+            : escapeHtml(description || '');
+        const descTitle = note ? `Remark: ${note}\nOriginal: ${description || ''}` : (description || '');
 
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td style="padding:4px 8px 4px 56px; white-space:nowrap;">${date}</td>
-            <td style="padding:4px 8px;">${escapeHtml(description || '')}</td>
+            <td style="padding:4px 8px;" title="${escapeHtml(descTitle)}">${descCell}</td>
             <td style="padding:4px 8px; color:#7f8c8d;">${escapeHtml(bank)} · ${escapeHtml(account)}</td>
             <td class="${amtClass}" style="text-align:right; padding:4px 8px;">${amtStr}</td>
         `;

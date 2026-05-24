@@ -116,9 +116,9 @@ async function loadTransactions(page = 0) {
     const showIgnored = document.getElementById('filterShowIgnored')?.value || 'active';
 
     let query = `
-        SELECT 
-            t.id, t.import_id, b.name as bank, a.account_name, t.date, t.description, 
-            t.amount, c.name as category_name, sc.name as subcategory_name, t.ignored, t.category_id, t.subcategory_id
+        SELECT
+            t.id, t.import_id, b.name as bank, a.account_name, t.date, t.description,
+            t.amount, c.name as category_name, sc.name as subcategory_name, t.ignored, t.category_id, t.subcategory_id, t.note
         FROM transactions t
         JOIN imports i ON t.import_id = i.id
         JOIN accounts a ON i.account_id = a.id
@@ -162,8 +162,8 @@ async function loadTransactions(page = 0) {
         params.push(dateTo);
     }
     if (search) {
-        query += ' AND t.description LIKE ?';
-        params.push(`%${search}%`);
+        query += ' AND (t.description LIKE ? OR t.note LIKE ?)';
+        params.push(`%${search}%`, `%${search}%`);
     }
 
     // Get total count
@@ -357,6 +357,7 @@ function displayTransactions(result, totalCount = 0, page = 0) {
         const ignored       = row[9];
         const categoryId    = row[10] ?? null;
         const subcategoryId = row[11] ?? null;
+        const note          = row[12] || '';
 
         const amountClass = amount >= 0 ? 'transaction-positive' : 'transaction-negative';
         const amountStr   = fmtMoneySigned(amount);
@@ -375,16 +376,27 @@ function displayTransactions(result, totalCount = 0, page = 0) {
         const tr = document.createElement('tr');
         if (ignored) tr.style.opacity = '0.5';
         if (isSelected) tr.style.background = '#fff8d6';
+
+        // Description column: show note as primary when present, original as subtitle
+        const descTooltip = note
+            ? `Remark: ${note}\nOriginal: ${description}\n\nClick to edit remark`
+            : `${description}\n\nClick to add a personal remark`;
+        const descCell = note
+            ? `<div style="font-weight:500;">${escapeHtml(note)} <span style="color:#3498db;font-size:11px;">✎</span></div>
+               <div style="color:#95a5a6;font-size:11px;margin-top:2px;">${escapeHtml(description)}</div>`
+            : `<span>${escapeHtml(description)}</span>`;
+
         tr.innerHTML = `
             <td><input type="checkbox" data-select-row ${isSelected ? 'checked' : ''}></td>
             <td>${accountDisplay}</td>
             <td>${date}</td>
-            <td>${escapeHtml(description)}</td>
+            <td data-desc style="cursor:pointer;" title="${escapeHtml(descTooltip)}">${descCell}</td>
             <td class="${amountClass}">${amountStr}</td>
             <td data-cat style="cursor:pointer;text-decoration:underline;" title="Click to edit">${categoryDisplay}</td>
             <td><button data-toggle style="padding:5px 10px;font-size:12px;">${ignored ? 'Unignore' : 'Ignore'}</button></td>
         `;
         tr.querySelector('[data-cat]').addEventListener('click', () => showEditCategory(id, categoryId, subcategoryId));
+        tr.querySelector('[data-desc]').addEventListener('click', () => showEditNote(id, description, note));
         tr.querySelector('[data-toggle]').addEventListener('click', () => toggleIgnore(id, ignored ? 0 : 1));
         tr.querySelector('[data-select-row]').addEventListener('change', e => {
             if (e.target.checked) selectedTransactionIds.add(id);
@@ -441,6 +453,75 @@ function updateBulkBar(pageIds) {
 function clearTransactionSelection() {
     selectedTransactionIds.clear();
     loadTransactions(currentPage);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// §7.3. Personal Remarks (Notes)
+// ─────────────────────────────────────────────────────────────────────────
+
+function showEditNote(transactionId, originalDescription, currentNote) {
+    closeEditNoteModal();
+    const modalHtml = `
+        <div id="editNoteModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000;">
+            <div style="background:white;padding:30px;border-radius:8px;max-width:480px;width:90%;">
+                <h3 style="margin-top:0;">Personal Remark</h3>
+                <div style="background:#f8f9fa;border-left:3px solid #bdc3c7;padding:8px 12px;margin-bottom:15px;font-size:13px;color:#555;">
+                    <div style="color:#95a5a6;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Original description</div>
+                    ${escapeHtml(originalDescription)}
+                </div>
+                <div class="form-group">
+                    <label for="editNoteInput">Your remark (shown instead of the original)</label>
+                    <textarea id="editNoteInput" rows="3" style="width:100%;padding:8px;font-family:inherit;font-size:14px;" placeholder="e.g. Birthday gift for mom">${escapeHtml(currentNote || '')}</textarea>
+                </div>
+                <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap;">
+                    <button id="saveNoteBtn">Save</button>
+                    ${currentNote ? '<button class="secondary-btn" id="clearNoteBtn">Clear Remark</button>' : ''}
+                    <button class="secondary-btn" id="cancelNoteBtn">Cancel</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    const input = document.getElementById('editNoteInput');
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+
+    document.getElementById('saveNoteBtn').addEventListener('click', () => saveTransactionNote(transactionId));
+    document.getElementById('cancelNoteBtn').addEventListener('click', closeEditNoteModal);
+    const clearBtn = document.getElementById('clearNoteBtn');
+    if (clearBtn) clearBtn.addEventListener('click', () => saveTransactionNote(transactionId, true));
+
+    // Close on overlay click; Cmd/Ctrl+Enter to save; Esc to cancel
+    document.getElementById('editNoteModal').addEventListener('click', e => {
+        if (e.target.id === 'editNoteModal') closeEditNoteModal();
+    });
+    input.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            saveTransactionNote(transactionId);
+        } else if (e.key === 'Escape') {
+            closeEditNoteModal();
+        }
+    });
+}
+
+function closeEditNoteModal() {
+    const modal = document.getElementById('editNoteModal');
+    if (modal) modal.remove();
+}
+
+async function saveTransactionNote(transactionId, clear = false) {
+    let note = null;
+    if (!clear) {
+        const raw = document.getElementById('editNoteInput').value.trim();
+        note = raw === '' ? null : raw;
+    }
+    db.run('UPDATE transactions SET note = ? WHERE id = ?', [note, transactionId]);
+    markDirty();
+    closeEditNoteModal();
+    await loadTransactions(currentPage);
+    showMessage('success', clear || note === null ? 'Remark cleared' : 'Remark saved');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

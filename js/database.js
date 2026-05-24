@@ -205,6 +205,7 @@ function createTables() {
 
     // Add manual_category column to existing databases
     try { db.run('ALTER TABLE transactions ADD COLUMN manual_category INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.run('ALTER TABLE transactions ADD COLUMN note TEXT'); } catch(e) {}
 
     db.run(`
         CREATE TABLE IF NOT EXISTS manual_transactions (

@@ -819,7 +819,7 @@ async function saveTransactionCategory(transactionId) {
         [categoryId, subcategoryId, transactionId]);
 
     markDirty();
-    await loadTransactions();
+    await loadTransactions(currentPage);
     refreshFilters();
     await updateAnalytics();
     closeEditCategoryModal();

@@ -306,12 +306,13 @@ function displayTransactions(result, totalCount = 0, page = 0) {
     const totalPages = Math.ceil(totalCount / CONFIG.PAGE_SIZE);
     const frag = document.createDocumentFragment();
 
-    // Pagination bar
-    if (totalCount > CONFIG.PAGE_SIZE) {
+    // Pagination bar (rendered both above and below the table)
+    const makePaginationBar = (position) => {
         const start = page * CONFIG.PAGE_SIZE + 1;
         const end = Math.min((page + 1) * CONFIG.PAGE_SIZE, totalCount);
         const bar = document.createElement('div');
-        bar.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; padding:10px; background:#f8f9fa; border-radius:4px;';
+        const marginRule = position === 'top' ? 'margin-bottom:15px;' : 'margin-top:15px;';
+        bar.style.cssText = `display:flex; justify-content:space-between; align-items:center; ${marginRule} padding:10px; background:#f8f9fa; border-radius:4px;`;
         bar.innerHTML = `<div>Showing ${start}-${end} of ${totalCount} transactions</div>
             <div style="display:flex; gap:10px;">
                 <button data-prev ${page === 0 ? 'disabled' : ''} style="padding:5px 15px;">← Previous</button>
@@ -320,7 +321,10 @@ function displayTransactions(result, totalCount = 0, page = 0) {
             </div>`;
         bar.querySelector('[data-prev]').addEventListener('click', () => loadTransactions(page - 1));
         bar.querySelector('[data-next]').addEventListener('click', () => loadTransactions(page + 1));
-        frag.appendChild(bar);
+        return bar;
+    };
+    if (totalCount > CONFIG.PAGE_SIZE) {
+        frag.appendChild(makePaginationBar('top'));
     }
 
     // Bulk action bar — shown when any rows are selected
@@ -409,6 +413,11 @@ function displayTransactions(result, totalCount = 0, page = 0) {
 
     table.appendChild(tbody);
     frag.appendChild(table);
+
+    if (totalCount > CONFIG.PAGE_SIZE) {
+        frag.appendChild(makePaginationBar('bottom'));
+    }
+
     container.innerHTML = '';
     container.appendChild(frag);
 

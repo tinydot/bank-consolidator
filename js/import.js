@@ -708,7 +708,7 @@ function mapTransaction(row, profile, importId, dateFormat) {
 async function toggleIgnore(transactionId, ignoredValue) {
     db.run('UPDATE transactions SET ignored = ? WHERE id = ?', [ignoredValue, transactionId]);
     markDirty();
-    await loadTransactions();
+    await loadTransactions(currentPage);
     refreshFilters();
     await updateAnalytics();
 }

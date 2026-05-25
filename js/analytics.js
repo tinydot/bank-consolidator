@@ -6,12 +6,8 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 async function updateAnalytics() {
-    // Check if manual transactions should be included
-    const includeManual = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'include_manual_in_analytics'") === '1';
-    const startDate = includeManual ? dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'manual_analytics_start_date'") : null;
-
     // Monthly breakdown — last 6 months
-    let monthlyQuery = `
+    const monthlyResult = db.exec(`
         SELECT
             strftime('%Y-%m', date) as month,
             SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) as income,
@@ -21,34 +17,13 @@ async function updateAnalytics() {
         WHERE ignored = 0
           AND date >= date('now', '-6 months', 'start of month')
         GROUP BY month
-    `;
-
-    let monthlyParams = [];
-    if (includeManual && startDate) {
-        monthlyQuery = `
-            SELECT
-                strftime('%Y-%m', date) as month,
-                SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) as income,
-                SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) as expenses,
-                SUM(amount) as net
-            FROM (
-                SELECT date, amount FROM transactions WHERE ignored = 0
-                UNION ALL
-                SELECT date, amount FROM manual_transactions WHERE date >= ?
-            )
-            WHERE date >= date('now', '-6 months', 'start of month')
-            GROUP BY month
-        `;
-        monthlyParams = [startDate];
-    }
-
-    monthlyQuery += ' ORDER BY month DESC';
-    const monthlyResult = db.exec(monthlyQuery, monthlyParams);
+        ORDER BY month DESC
+    `);
 
     updateMonthlyTable(monthlyResult);
 
     // Category breakdown by month — last 6 months, expenses only
-    let categoryQuery = `
+    const categoryResult = db.exec(`
         SELECT
             strftime('%Y-%m', t.date) as month,
             COALESCE(c.name, 'Uncategorized') as category_name,
@@ -59,45 +34,11 @@ async function updateAnalytics() {
           AND t.date >= date('now', '-6 months', 'start of month')
         GROUP BY month, t.category_id
         ORDER BY month ASC, total DESC
-    `;
-
-    let categoryParams = [];
-    if (includeManual && startDate) {
-        categoryQuery = `
-            SELECT
-                month, category_name, SUM(total) as total
-            FROM (
-                SELECT
-                    strftime('%Y-%m', t.date) as month,
-                    COALESCE(c.name, 'Uncategorized') as category_name,
-                    ABS(t.amount) as total,
-                    t.category_id
-                FROM transactions t
-                LEFT JOIN categories c ON t.category_id = c.id
-                WHERE t.amount < 0 AND t.ignored = 0
-                  AND t.date >= date('now', '-6 months', 'start of month')
-                UNION ALL
-                SELECT
-                    strftime('%Y-%m', mt.date) as month,
-                    COALESCE(c.name, 'Uncategorized') as category_name,
-                    ABS(mt.amount) as total,
-                    mt.category_id
-                FROM manual_transactions mt
-                LEFT JOIN categories c ON mt.category_id = c.id
-                WHERE mt.amount < 0 AND mt.date >= ?
-                  AND mt.date >= date('now', '-6 months', 'start of month')
-            )
-            GROUP BY month, category_id
-            ORDER BY month ASC, total DESC
-        `;
-        categoryParams = [startDate];
-    }
-
-    const categoryResult = db.exec(categoryQuery, categoryParams);
+    `);
 
     updateCategoryChart(categoryResult);
 
-    // Last transaction date per account (no change - manual transactions don't have accounts)
+    // Last transaction date per account
     const lastTxResult = db.exec(`
         SELECT
             b.name        as bank_name,
@@ -276,12 +217,7 @@ function updateTagViewMonthLabel() {
 function renderCategoryDetailTags() {
     const container = document.getElementById('categoryDetailTags');
 
-    // Check if manual transactions should be included
-    const includeManual = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'include_manual_in_analytics'") === '1';
-    const startDate = includeManual ? dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'manual_analytics_start_date'") : null;
-
-    // Query transactions for selected month only
-    let query = `
+    const result = db.exec(`
         SELECT
             COALESCE(c.name, 'Uncategorized') as category_name,
             c.icon as category_icon,
@@ -296,49 +232,7 @@ function renderCategoryDetailTags() {
         WHERE t.amount < 0 AND t.ignored = 0
           AND strftime('%Y-%m', t.date) = ?
         ORDER BY category_name, t.date DESC
-    `;
-
-    const params = [tagViewMonth];
-
-    if (includeManual && startDate) {
-        query = `
-            SELECT
-                category_name, category_icon, category_color, category_id, id, description, amount, date
-            FROM (
-                SELECT
-                    COALESCE(c.name, 'Uncategorized') as category_name,
-                    c.icon as category_icon,
-                    c.color as category_color,
-                    c.id as category_id,
-                    t.id,
-                    t.description,
-                    t.amount,
-                    t.date
-                FROM transactions t
-                LEFT JOIN categories c ON t.category_id = c.id
-                WHERE t.amount < 0 AND t.ignored = 0
-                  AND strftime('%Y-%m', t.date) = ?
-                UNION ALL
-                SELECT
-                    COALESCE(c.name, 'Uncategorized') as category_name,
-                    COALESCE(c.icon, '📦') as category_icon,
-                    COALESCE(c.color, '#95a5a6') as category_color,
-                    c.id as category_id,
-                    mt.id,
-                    mt.description,
-                    mt.amount,
-                    mt.date
-                FROM manual_transactions mt
-                LEFT JOIN categories c ON mt.category_id = c.id
-                WHERE mt.amount < 0 AND strftime('%Y-%m', mt.date) = ?
-                  AND mt.date >= ?
-            )
-            ORDER BY category_name, date DESC
-        `;
-        params.push(tagViewMonth, startDate); // Second and third parameters for manual_transactions query
-    }
-
-    const result = db.exec(query, params);
+    `, [tagViewMonth]);
 
     if (!result.length || !result[0].values.length) {
         container.innerHTML = '<div class="loading">No expense transactions found for this month</div>';
@@ -381,21 +275,10 @@ function renderCategoryDetailTags() {
         totalIncome = parseFloat(expectedIncomeVal);
     } else {
         // Get income for this month from transactions
-        let incomeQuery = `
+        const incomeResult = db.exec(`
             SELECT SUM(amount) FROM transactions
             WHERE amount > 0 AND ignored = 0 AND strftime('%Y-%m', date) = ?
-        `;
-        if (includeManual && startDate) {
-            incomeQuery = `
-                SELECT SUM(amount) FROM (
-                    SELECT amount FROM transactions WHERE amount > 0 AND ignored = 0 AND strftime('%Y-%m', date) = ?
-                    UNION ALL
-                    SELECT amount FROM manual_transactions WHERE amount > 0 AND strftime('%Y-%m', date) = ? AND date >= ?
-                )
-            `;
-        }
-        const incomeParams = includeManual && startDate ? [tagViewMonth, tagViewMonth, startDate] : [tagViewMonth];
-        const incomeResult = db.exec(incomeQuery, incomeParams);
+        `, [tagViewMonth]);
         if (incomeResult.length && incomeResult[0].values[0][0]) {
             totalIncome = incomeResult[0].values[0][0];
         }

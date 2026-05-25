@@ -421,7 +421,6 @@ function switchTab(tab) {
     }
 
     if (tab === 'settings') {
-        loadManualAnalyticsSettings();
         loadMonthlyIncomeSettings();
     }
 }
@@ -433,22 +432,8 @@ function switchTransactionsSubTab(sub) {
     const activeBtn = document.querySelector(`[onclick="switchTransactionsSubTab('${sub}')"]`);
     if (activeBtn) activeBtn.classList.add('active');
 
-    const panelId = sub === 'list' ? 'transactions-list-sub'
-                  : sub === 'import' ? 'import-tab'
-                  : 'manual-tab';
+    const panelId = sub === 'list' ? 'transactions-list-sub' : 'import-tab';
     document.getElementById(panelId).classList.add('active');
-
-    if (sub === 'manual') {
-        const dateInput = document.getElementById('manualDate');
-        if (!dateInput.value) {
-            dateInput.value = new Date().toISOString().split('T')[0];
-        }
-        const monthInput = document.getElementById('manualFilterMonth');
-        if (!monthInput.value) {
-            monthInput.value = new Date().toISOString().slice(0, 7);
-        }
-        loadManualTransactions();
-    }
 }
 
 function toggleSettingsSection(headerBtn) {

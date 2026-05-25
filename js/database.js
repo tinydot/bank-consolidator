@@ -13,6 +13,7 @@ async function init() {
     await updateAnalytics();
     await loadBudget();
     await loadPlanner();
+    populateTemplateAccountSelect();
     setupEventListeners();
 }
 

@@ -438,6 +438,10 @@ function switchTab(tab) {
         loadManualAnalyticsSettings();
         loadMonthlyIncomeSettings();
     }
+
+    if (tab === 'import') {
+        populateTemplateAccountSelect();
+    }
 }
 
 function toggleSettingsSection(headerBtn) {

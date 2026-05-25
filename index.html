@@ -55,6 +55,20 @@
                 </label>
                 <input type="file" id="fileInput" accept=".csv" multiple style="display: none;">
 
+                <details style="margin-top: 18px; background: #f8f9fa; border: 1px solid #e1e8ed; border-radius: 8px; padding: 12px 16px;">
+                    <summary style="cursor: pointer; font-weight: 600; color: #2c3e50;">📄 Download CSV template (for manual entry)</summary>
+                    <p style="color: #7f8c8d; font-size: 13px; margin: 10px 0;">
+                        For banks without CSV export. Pick an account and download a CSV with the matching column layout and an example row. Edit it in a spreadsheet, then drop it back in to import.
+                    </p>
+                    <div class="form-group">
+                        <label>Account</label>
+                        <select id="templateAccountSelect">
+                            <option value="">Select account...</option>
+                        </select>
+                    </div>
+                    <button onclick="downloadCsvTemplate()" class="secondary-btn">Download Template</button>
+                </details>
+
                 <div id="bankProfileSelector" style="display: none;">
                     <div class="form-group">
                         <label>Select Bank Profile</label>

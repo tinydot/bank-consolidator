@@ -40,16 +40,38 @@
                 <button class="tab-button" onclick="switchTab('settings')">🔧 Settings</button>
             </div>
 
-            <!-- TRANSACTIONS TAB (contains List / Import sub-tabs) -->
+            <!-- TRANSACTIONS TAB -->
             <div id="transactions-tab" class="tab-content active">
-                <div class="sub-tab-buttons">
-                    <button class="sub-tab-button active" onclick="switchTransactionsSubTab('list')">💳 Transactions</button>
-                    <button class="sub-tab-button" onclick="switchTransactionsSubTab('import')">📥 Import</button>
+                <div id="import-bar">
+                    <div id="import-message"></div>
+                    <label for="fileInput" class="compact-drop-zone" id="dropZone">
+                        <span class="compact-drop-icon">📁</span>
+                        <span>Drop CSV here or click to import</span>
+                    </label>
+                    <input type="file" id="fileInput" accept=".csv" multiple style="display: none;">
+
+                    <!-- Hidden controls retained so existing import pipeline keeps working -->
+                    <div id="bankProfileSelector" style="display: none;">
+                        <select id="bankProfileSelect" onchange="updateAccountOptions(); updateImportPreview(true)"></select>
+                        <select id="importDateFormat" onchange="updateImportPreview()">
+                            <option value="auto">Auto-detect</option>
+                            <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                            <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                            <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                            <option value="DD-MM-YYYY">DD-MM-YYYY</option>
+                            <option value="MM-DD-YYYY">MM-DD-YYYY</option>
+                            <option value="DD/MM/YY">DD/MM/YY</option>
+                            <option value="MM/DD/YY">MM/DD/YY</option>
+                            <option value="DD-Mon-YY">DD-Mon-YY</option>
+                            <option value="DD-Mon-YYYY">DD-Mon-YYYY</option>
+                        </select>
+                        <select id="accountSelect" onchange="updateImportPreview()"></select>
+                    </div>
+
+                    <div id="importPreview"></div>
                 </div>
 
-                <!-- LIST SUB-TAB -->
-                <div id="transactions-list-sub" class="sub-tab-content active">
-                    <div class="filters">
+                <div class="filters">
                         <div class="form-group">
                             <label>Bank</label>
                             <select id="filterBank" onchange="updateAccountFilter(); loadTransactions();">
@@ -101,70 +123,22 @@
                         <button onclick="exportReport()" style="background:#27ae60; color:white; border-color:#27ae60;">📊 Export Report</button>
                     </div>
 
-                    <div id="transactionsContainer"></div>
-                </div>
-
-                <!-- IMPORT SUB-TAB -->
-                <div id="import-tab" class="sub-tab-content">
-                    <div id="import-message"></div>
-                
-                <label for="fileInput" style="display: block; cursor: pointer;">
-                    <div class="drop-zone" id="dropZone">
-                        <div class="drop-zone-icon">📁</div>
-                        <h3>Drop CSV files here or click to browse</h3>
-                        <p style="color: #7f8c8d; margin-top: 10px;">Supports multiple bank formats</p>
-                    </div>
-                </label>
-                <input type="file" id="fileInput" accept=".csv" multiple style="display: none;">
-
-                <div id="bankProfileSelector" style="display: none;">
-                    <div class="form-group">
-                        <label>Select Bank Profile</label>
-                        <select id="bankProfileSelect" onchange="updateAccountOptions(); updateImportPreview(true)"></select>
-                    </div>
-                    <div class="form-group">
-                        <label>Date Format</label>
-                        <select id="importDateFormat" onchange="updateImportPreview()">
-                            <option value="auto">Auto-detect</option>
-                            <option value="YYYY-MM-DD">YYYY-MM-DD (e.g. 2025-01-31)</option>
-                            <option value="DD/MM/YYYY">DD/MM/YYYY (e.g. 31/01/2025)</option>
-                            <option value="MM/DD/YYYY">MM/DD/YYYY (e.g. 01/31/2025)</option>
-                            <option value="DD-MM-YYYY">DD-MM-YYYY (e.g. 31-01-2025)</option>
-                            <option value="MM-DD-YYYY">MM-DD-YYYY (e.g. 01-31-2025)</option>
-                            <option value="DD/MM/YY">DD/MM/YY (e.g. 31/01/25)</option>
-                            <option value="MM/DD/YY">MM/DD/YY (e.g. 01/31/25)</option>
-                            <option value="DD-Mon-YY">DD-Mon-YY (e.g. 16-Feb-26)</option>
-                            <option value="DD-Mon-YYYY">DD-Mon-YYYY (e.g. 16-Feb-2026)</option>
-                        </select>
-                        <p style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">Overrides the profile setting for this import only</p>
-                    </div>
-                    <div class="form-group">
-                        <label>Select Account</label>
-                        <select id="accountSelect" onchange="updateImportPreview()">
-                            <option value="">Select account...</option>
-                        </select>
-                        <button onclick="showAddAccount()" style="margin-top: 10px;" class="secondary-btn">+ Add New Account</button>
-                    </div>
-                    <div id="addAccountForm" style="display: none; background: #f8f9fa; padding: 15px; border-radius: 8px; margin-top: 10px;">
-                        <div class="form-group">
-                            <label>Account Name</label>
-                            <input type="text" id="newAccountName" placeholder="e.g., Checking, Savings, Credit Card">
-                        </div>
-                        <div class="form-group">
-                            <label>Account Number (last 4 digits, optional)</label>
-                            <input type="text" id="newAccountNumber" placeholder="e.g., 1234">
-                        </div>
-                        <button onclick="addAccount()">Create Account</button>
-                        <button class="secondary-btn" onclick="cancelAddAccount()">Cancel</button>
-                    </div>
-                    <div id="importPreview" style="margin-bottom: 20px;"></div>
-                    <button onclick="processUploadedFiles()" style="margin-top: 15px;">Import Transactions</button>
-                    <button class="secondary-btn" onclick="cancelUpload()">Cancel</button>
-                </div>
-
+                <div id="transactionsContainer"></div>
                 <div id="mappingPreview"></div>
-                </div>
 
+                <!-- Hidden "add account" form, retained for the (rare) add-account flow -->
+                <div id="addAccountForm" style="display: none; background: #f8f9fa; padding: 15px; border-radius: 8px; margin-top: 10px;">
+                    <div class="form-group">
+                        <label>Account Name</label>
+                        <input type="text" id="newAccountName" placeholder="e.g., Checking, Savings, Credit Card">
+                    </div>
+                    <div class="form-group">
+                        <label>Account Number (last 4 digits, optional)</label>
+                        <input type="text" id="newAccountNumber" placeholder="e.g., 1234">
+                    </div>
+                    <button onclick="addAccount()">Create Account</button>
+                    <button class="secondary-btn" onclick="cancelAddAccount()">Cancel</button>
+                </div>
             </div>
             <!-- /TRANSACTIONS TAB -->
 

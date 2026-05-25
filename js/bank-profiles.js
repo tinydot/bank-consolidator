@@ -425,17 +425,6 @@ function switchTab(tab) {
     }
 }
 
-function switchTransactionsSubTab(sub) {
-    document.querySelectorAll('.sub-tab-button').forEach(btn => btn.classList.remove('active'));
-    document.querySelectorAll('#transactions-tab > .sub-tab-content').forEach(c => c.classList.remove('active'));
-
-    const activeBtn = document.querySelector(`[onclick="switchTransactionsSubTab('${sub}')"]`);
-    if (activeBtn) activeBtn.classList.add('active');
-
-    const panelId = sub === 'list' ? 'transactions-list-sub' : 'import-tab';
-    document.getElementById(panelId).classList.add('active');
-}
-
 function toggleSettingsSection(headerBtn) {
     headerBtn.closest('.settings-section').classList.toggle('collapsed');
 }

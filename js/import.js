@@ -60,35 +60,15 @@ async function handleFiles(files) {
         return;
     }
 
-    // Hide drop zone and show file list
     document.getElementById('dropZone').style.display = 'none';
 
-    // Display selected files
-    const fileListHtml = `
-        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-            <h3 style="margin-bottom: 15px;">📄 Selected Files (${uploadedFiles.length})</h3>
-            <ul style="list-style: none; padding: 0;">
-                ${uploadedFiles.map(f => `
-                    <li style="padding: 8px; background: white; margin-bottom: 8px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-family: monospace;">${escapeHtml(f.name)}</span>
-                        <span style="color: #7f8c8d; font-size: 12px;">${(f.size / 1024).toFixed(1)} KB</span>
-                    </li>
-                `).join('')}
-            </ul>
-            <button onclick="resetFileSelection()" class="secondary-btn" style="margin-top: 10px;">
-                ← Change Files
-            </button>
-        </div>
-    `;
-
-    document.getElementById('dropZone').insertAdjacentHTML('afterend', fileListHtml);
-
-    // Show bank profile selector
     populateBankProfileSelector();
-    document.getElementById('bankProfileSelector').style.display = 'block';
 
-    // Auto-detect bank/account from first line of first file
-    await autoDetectBankAccount(uploadedFiles[0]);
+    const detected = await autoDetectBankAccount(uploadedFiles[0]);
+    if (!detected) {
+        renderImportError(`Could not auto-detect bank from "${uploadedFiles[0].name}". Configure an account keyword in Settings → Banks & Accounts.`);
+        return;
+    }
 
     updateImportPreview(true);
 }
@@ -105,14 +85,14 @@ function readFirstLine(file) {
 async function autoDetectBankAccount(file) {
     try {
         const firstLine = await readFirstLine(file);
-        if (!firstLine) return;
+        if (!firstLine) return false;
 
         const result = db.exec(`
             SELECT a.id, a.keyword, a.bank_id
             FROM accounts a
             WHERE a.keyword IS NOT NULL AND a.keyword != ''
         `);
-        if (!result.length) return;
+        if (!result.length) return false;
 
         const lowerLine = firstLine.toLowerCase();
         for (const [accountId, keyword, bankId] of result[0].values) {
@@ -125,12 +105,12 @@ async function autoDetectBankAccount(file) {
                 updateAccountOptions();
                 syncDateFormatDropdown();
                 document.getElementById('accountSelect').value = accountId;
-                showMessage('success', `Auto-detected: ${escapeHtml(bankProfiles[profileIdx].name)}`);
-                return;
+                return true;
             }
         }
+        return false;
     } catch (e) {
-        // Silent fail — user can select manually
+        return false;
     }
 }
 
@@ -139,17 +119,22 @@ function resetFileSelection() {
     previewTransactions = [];
     _showDuplicates = false;
     document.getElementById('fileInput').value = '';
-    document.getElementById('dropZone').style.display = 'block';
+    document.getElementById('dropZone').style.display = '';
+    document.getElementById('importPreview').innerHTML = '';
 
-    // Remove file list
-    const fileList = document.querySelector('#dropZone').nextElementSibling;
-    if (fileList && fileList.querySelector('h3')?.textContent.includes('Selected Files')) {
-        fileList.remove();
-    }
+    const addAccountForm = document.getElementById('addAccountForm');
+    if (addAccountForm) addAccountForm.style.display = 'none';
+}
 
-    // Hide bank profile selector
-    document.getElementById('bankProfileSelector').style.display = 'none';
-    document.getElementById('addAccountForm').style.display = 'none';
+function renderImportError(text) {
+    document.getElementById('importPreview').innerHTML = `
+        <div class="import-preview-box">
+            <div class="import-preview-summary" style="color:#e74c3c;">${escapeHtml(text)}</div>
+            <div class="import-preview-actions">
+                <button class="secondary-btn" onclick="cancelUpload()">Cancel</button>
+            </div>
+        </div>
+    `;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -335,119 +320,37 @@ function renderPreviewTable(latestStoredDate, parseErrors) {
     const duplicateCount = previewTransactions.filter(t => t.isDuplicate).length;
     const newCount = total - duplicateCount;
 
+    // Drop the unparseable rows so they don't sneak into the import.
+    previewTransactions.forEach(tx => { tx.checked = !tx.isDuplicate && !!tx.parsedDate; });
+
     if (total === 0) {
-        container.innerHTML = '<p style="color:#7f8c8d;">No rows found in file(s).</p>';
-        updateImportButtonLabel();
+        renderImportError('No rows found in the selected file(s).');
         return;
     }
 
-    const accountId = document.getElementById('accountSelect').value;
+    const profileIdx = document.getElementById('bankProfileSelect').value;
+    const profile = bankProfiles[profileIdx];
+    const accountSelect = document.getElementById('accountSelect');
+    const accountName = accountSelect.options[accountSelect.selectedIndex]?.text || 'account';
+    const target = `${profile ? profile.name : ''} — ${accountName}`.trim();
 
-    let html = `
-        <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-            <strong>Import Preview</strong>
-            <span style="color:#27ae60; font-size:13px;">${newCount} new</span>
-            ${duplicateCount > 0 ? `<span style="color:#e67e22; font-size:13px;">${duplicateCount} earlier than last import (hidden)</span>` : ''}
-            ${!accountId ? `<span style="color:#7f8c8d; font-size:13px;">(select an account above to detect earlier transactions)</span>` : ''}
+    const skipNote = duplicateCount > 0 ? `<span class="skip-count">${duplicateCount} already imported (skipped)</span>` : '';
+    const errNote = parseErrors > 0 ? `<span class="skip-count" style="color:#e74c3c;">${parseErrors} unparseable date${parseErrors !== 1 ? 's' : ''} (skipped)</span>` : '';
+
+    container.innerHTML = `
+        <div class="import-preview-box">
+            <div class="import-preview-summary">
+                <span class="new-count">${newCount}</span> new transaction${newCount !== 1 ? 's' : ''}
+                <span style="color:#7f8c8d;">→ ${escapeHtml(target)}</span>
+                ${skipNote}
+                ${errNote}
+            </div>
+            <div class="import-preview-actions">
+                <button onclick="processUploadedFiles()"${newCount === 0 ? ' disabled' : ''}>Import ${newCount > 0 ? newCount + ' ' : ''}Transaction${newCount !== 1 ? 's' : ''}</button>
+                <button class="secondary-btn" onclick="cancelUpload()">Cancel</button>
+            </div>
         </div>
-        <div style="margin-bottom: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-            <button class="secondary-btn" style="padding:4px 10px; font-size:12px;" onclick="selectAllPreview(true)">Select All</button>
-            <button class="secondary-btn" style="padding:4px 10px; font-size:12px;" onclick="selectAllPreview(false)">Deselect All</button>
-            ${duplicateCount > 0 ? `<button class="secondary-btn" style="padding:4px 10px; font-size:12px;" id="toggleDuplicatesBtn" onclick="togglePreviewDuplicates()">Show Earlier (${duplicateCount})</button>` : ''}
-        </div>
-        <div style="max-height:420px; overflow-y:auto; border:1px solid #e0e0e0; border-radius:6px;">
-        <table style="width:100%; border-collapse:collapse;">
-            <thead style="position:sticky; top:0; background:#f8f9fa; z-index:1;">
-                <tr>
-                    <th style="padding:8px; text-align:center; width:32px; font-weight:600; border-bottom:1px solid #dee2e6;">✓</th>
-                    <th style="padding:8px; text-align:left; font-weight:600; border-bottom:1px solid #dee2e6;">Date</th>
-                    <th style="padding:8px; text-align:left; font-weight:600; border-bottom:1px solid #dee2e6;">Description</th>
-                    <th style="padding:8px; text-align:right; font-weight:600; border-bottom:1px solid #dee2e6;">Amount</th>
-                </tr>
-            </thead>
-            <tbody>
     `;
-
-    previewTransactions.forEach((tx, idx) => {
-        const hidden = tx.isDuplicate && !_showDuplicates;
-        const rowStyle = hidden ? 'display:none;' : (tx.isDuplicate ? 'opacity:0.5;' : '');
-        const amtClass = tx.amount >= 0 ? 'transaction-positive' : 'transaction-negative';
-        const amtStr = fmtMoneySigned(tx.amount);
-        const dateInputStyle = tx.parsedDate ? '' : 'border-color:#e74c3c;';
-
-        html += `
-            <tr id="preview-row-${idx}" style="${rowStyle}" data-is-duplicate="${tx.isDuplicate ? 1 : 0}">
-                <td style="padding:6px 8px; text-align:center; border-bottom:1px solid #f0f0f0;">
-                    <input type="checkbox" id="preview-check-${idx}" ${tx.checked ? 'checked' : ''} onchange="updatePreviewCheck(${idx})">
-                </td>
-                <td style="padding:6px 8px; border-bottom:1px solid #f0f0f0;">
-                    <input type="date" id="preview-date-${idx}" value="${escapeHtml(tx.parsedDate)}"
-                        style="font-family:monospace; font-size:12px; width:135px; ${dateInputStyle}"
-                        onchange="updatePreviewDate(${idx}, this.value)">
-                </td>
-                <td style="padding:6px 8px; font-size:13px; border-bottom:1px solid #f0f0f0;">${escapeHtml(tx.description)}</td>
-                <td class="${amtClass}" style="padding:6px 8px; text-align:right; font-size:13px; border-bottom:1px solid #f0f0f0;">${amtStr}</td>
-            </tr>
-        `;
-    });
-
-    html += `</tbody></table></div>`;
-
-    if (parseErrors > 0) {
-        html += `<p style="color:#e74c3c; margin-top:8px; font-size:13px;">⚠ ${parseErrors} row(s) have unparseable dates — adjust the date format above.</p>`;
-    }
-    if (latestStoredDate) {
-        html += `<p style="color:#7f8c8d; margin-top:6px; font-size:12px;">Latest stored transaction for this account: ${latestStoredDate}. Transactions on or before this date are hidden by default.</p>`;
-    }
-
-    container.innerHTML = html;
-    updateImportButtonLabel();
-}
-
-function updatePreviewCheck(idx) {
-    const cb = document.getElementById('preview-check-' + idx);
-    if (previewTransactions[idx]) previewTransactions[idx].checked = cb ? cb.checked : false;
-    updateImportButtonLabel();
-}
-
-function updatePreviewDate(idx, value) {
-    if (previewTransactions[idx]) previewTransactions[idx].parsedDate = value;
-}
-
-function selectAllPreview(select) {
-    previewTransactions.forEach((tx, idx) => {
-        tx.checked = select;
-        const cb = document.getElementById('preview-check-' + idx);
-        if (cb) cb.checked = select;
-    });
-    updateImportButtonLabel();
-}
-
-function togglePreviewDuplicates() {
-    _showDuplicates = !_showDuplicates;
-    previewTransactions.forEach((tx, idx) => {
-        if (!tx.isDuplicate) return;
-        const row = document.getElementById('preview-row-' + idx);
-        if (row) {
-            row.style.display = _showDuplicates ? '' : 'none';
-            if (_showDuplicates) row.style.opacity = '0.5';
-        }
-    });
-    const btn = document.getElementById('toggleDuplicatesBtn');
-    if (btn) {
-        const dupCount = previewTransactions.filter(t => t.isDuplicate).length;
-        btn.textContent = _showDuplicates ? `Hide Earlier (${dupCount})` : `Show Earlier (${dupCount})`;
-    }
-}
-
-function updateImportButtonLabel() {
-    const selectedCount = previewTransactions.filter(t => t.checked).length;
-    const btn = document.querySelector('button[onclick="processUploadedFiles()"]');
-    if (btn) {
-        btn.textContent = selectedCount > 0
-            ? `Import ${selectedCount} Transaction${selectedCount !== 1 ? 's' : ''}`
-            : 'Import Transactions';
-    }
 }
 
 function updateAccountOptions() {

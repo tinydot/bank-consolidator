@@ -100,72 +100,68 @@ h1 {
     display: block;
 }
 
-/* Sub-tabs (used inside the Transactions tab) */
-.sub-tab-buttons {
-    display: flex;
-    gap: 4px;
-    border-bottom: 1px solid #ecf0f1;
+/* Compact import bar at top of Transactions tab */
+#import-bar {
     margin-bottom: 20px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
 }
 
-.sub-tab-buttons::-webkit-scrollbar {
-    display: none;
-}
-
-.sub-tab-button {
-    padding: 8px 14px;
-    background: none;
-    border: none;
+.compact-drop-zone {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border: 2px dashed #bdc3c7;
+    border-radius: 8px;
+    padding: 14px 20px;
+    background: #fafafa;
     cursor: pointer;
-    font-size: 13px;
     color: #7f8c8d;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
+    font-size: 14px;
     transition: all 0.2s;
-    white-space: nowrap;
-    flex-shrink: 0;
 }
 
-.sub-tab-button:hover {
+.compact-drop-zone:hover, .compact-drop-zone.drag-over {
+    border-color: #3498db;
+    background: #ecf7ff;
     color: #2c3e50;
 }
 
-.sub-tab-button.active {
-    color: #3498db;
-    border-bottom-color: #3498db;
+.compact-drop-icon {
+    font-size: 20px;
+}
+
+.import-preview-box {
+    margin-top: 12px;
+    padding: 14px 18px;
+    background: #f8f9fa;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.import-preview-summary {
+    font-size: 14px;
+    color: #2c3e50;
+}
+
+.import-preview-summary .new-count {
     font-weight: 600;
+    color: #27ae60;
 }
 
-.sub-tab-content {
-    display: none;
+.import-preview-summary .skip-count {
+    color: #7f8c8d;
+    font-size: 12px;
+    margin-left: 8px;
 }
 
-.sub-tab-content.active {
-    display: block;
-}
-
-.drop-zone {
-    border: 3px dashed #bdc3c7;
-    border-radius: 12px;
-    padding: 60px;
-    text-align: center;
-    background: #fafafa;
-    cursor: pointer;
-    transition: all 0.3s;
-    margin-bottom: 20px;
-}
-
-.drop-zone:hover, .drop-zone.drag-over {
-    border-color: #3498db;
-    background: #ecf7ff;
-}
-
-.drop-zone-icon {
-    font-size: 48px;
-    margin-bottom: 15px;
+.import-preview-actions {
+    display: flex;
+    gap: 8px;
 }
 
 .bank-profile {

@@ -2,7 +2,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════════════════
-// §16. SETTINGS - Manual Analytics Integration
+// §16. SETTINGS
 // ═══════════════════════════════════════════════════════════════════════════
 
 function loadMonthlyIncomeSettings() {
@@ -38,43 +38,6 @@ async function clearMonthlyIncome() {
     db.run("DELETE FROM settings WHERE key = 'monthly_expected_income'");
     markDirty();
     showMessage('success', 'Monthly income cleared. Analytics will use actual transaction income.');
-    if (document.getElementById('analytics-tab').classList.contains('active')) {
-        await updateAnalytics();
-    }
-}
-
-function loadManualAnalyticsSettings() {
-    const includeManual = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'include_manual_in_analytics'") === '1';
-    const startDate = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'manual_analytics_start_date'") || '';
-
-    document.getElementById('includeManualInAnalytics').checked = includeManual;
-    document.getElementById('manualAnalyticsStartDate').value = startDate;
-    document.getElementById('manualAnalyticsStartDate').disabled = !includeManual;
-}
-
-function toggleManualAnalytics() {
-    const checked = document.getElementById('includeManualInAnalytics').checked;
-    document.getElementById('manualAnalyticsStartDate').disabled = !checked;
-}
-
-async function saveManualAnalyticsSettings() {
-    const includeManual = document.getElementById('includeManualInAnalytics').checked;
-    const startDate = document.getElementById('manualAnalyticsStartDate').value;
-
-    if (includeManual && !startDate) {
-        alert('Please set a start date for manual transactions');
-        return;
-    }
-
-    db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('include_manual_in_analytics', ?)", [includeManual ? '1' : '0']);
-    if (startDate) {
-        db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('manual_analytics_start_date', ?)", [startDate]);
-    }
-
-    markDirty();
-    showMessage('success', 'Settings saved. Analytics will now ' + (includeManual ? 'include' : 'exclude') + ' manual transactions.');
-
-    // Refresh analytics if on that tab
     if (document.getElementById('analytics-tab').classList.contains('active')) {
         await updateAnalytics();
     }

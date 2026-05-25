@@ -44,10 +44,6 @@ function setupEventListeners() {
         dbImportInput.addEventListener('change', handleDatabaseImport);
     }
 
-    // Submit manual transaction on Enter in description field
-    document.getElementById('manualDescription').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') addManualTransaction();
-    });
 }
 
 async function handleFiles(files) {

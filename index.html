@@ -40,12 +40,11 @@
                 <button class="tab-button" onclick="switchTab('settings')">🔧 Settings</button>
             </div>
 
-            <!-- TRANSACTIONS TAB (contains List / Import / Manual sub-tabs) -->
+            <!-- TRANSACTIONS TAB (contains List / Import sub-tabs) -->
             <div id="transactions-tab" class="tab-content active">
                 <div class="sub-tab-buttons">
                     <button class="sub-tab-button active" onclick="switchTransactionsSubTab('list')">💳 Transactions</button>
                     <button class="sub-tab-button" onclick="switchTransactionsSubTab('import')">📥 Import</button>
-                    <button class="sub-tab-button" onclick="switchTransactionsSubTab('manual')">✏️ Manual</button>
                 </div>
 
                 <!-- LIST SUB-TAB -->
@@ -166,73 +165,6 @@
                 <div id="mappingPreview"></div>
                 </div>
 
-                <!-- MANUAL SUB-TAB -->
-                <div id="manual-tab" class="sub-tab-content">
-                    <div id="manual-message"></div>
-
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
-
-                        <!-- Entry Form -->
-                        <div>
-                            <h3 style="margin-bottom: 20px;">Add Transaction</h3>
-                            <div class="form-group">
-                                <label>Date</label>
-                                <input type="date" id="manualDate">
-                            </div>
-                            <div class="form-group">
-                                <label>Amount</label>
-                                <div style="display: flex; gap: 10px; align-items: center;">
-                                    <select id="manualSign" style="width: auto;">
-                                        <option value="-">− Expense</option>
-                                        <option value="+">+ Income</option>
-                                    </select>
-                                    <input type="number" id="manualAmount" placeholder="0.00" min="0" step="0.01" style="flex: 1;">
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <label>Description</label>
-                                <input type="text" id="manualDescription" placeholder="e.g. Coffee with client">
-                            </div>
-                            <button onclick="addManualTransaction()">Add Transaction</button>
-                        </div>
-
-                        <!-- Summary -->
-                        <div>
-                            <h3 style="margin-bottom: 20px;">Summary</h3>
-                            <div id="manualSummary" style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                                    <span style="color: #7f8c8d;">Total Entries</span>
-                                    <strong id="manualCount">0</strong>
-                                </div>
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                                    <span style="color: #7f8c8d;">Total Income</span>
-                                    <strong id="manualIncome" class="transaction-positive">$0.00</strong>
-                                </div>
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                                    <span style="color: #7f8c8d;">Total Expenses</span>
-                                    <strong id="manualExpenses" class="transaction-negative">$0.00</strong>
-                                </div>
-                                <hr style="border: none; border-top: 1px solid #ecf0f1; margin: 15px 0;">
-                                <div style="display: flex; justify-content: space-between;">
-                                    <span style="color: #7f8c8d;">Net</span>
-                                    <strong id="manualNet">$0.00</strong>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Transactions List -->
-                    <div style="margin-top: 30px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                            <h3>Entries</h3>
-                            <div style="display: flex; gap: 10px; align-items: center;">
-                                <button onclick="applyRulesToManualTransactions()" class="secondary-btn" style="padding: 6px 12px; font-size: 13px;">⚙️ Apply Rules</button>
-                                <input type="month" id="manualFilterMonth" onchange="loadManualTransactions()" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
-                            </div>
-                        </div>
-                        <div id="manualTransactionsContainer"></div>
-                    </div>
-                </div>
             </div>
             <!-- /TRANSACTIONS TAB -->
 
@@ -486,9 +418,6 @@
                             <div style="width:10px; height:10px; background:#3498db; border-radius:2px;"></div>Bank transactions
                         </div>
                         <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#555;">
-                            <div style="width:10px; height:10px; background:#e67e22; border-radius:2px;"></div>Manual transactions
-                        </div>
-                        <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#555;">
                             <div style="width:10px; height:10px; background:#9b59b6; border-radius:2px;"></div>Dated commitments
                         </div>
                         <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#555;">
@@ -518,27 +447,6 @@
                         <span class="settings-section-chevron">▾</span>
                     </button>
                     <div class="settings-section-body">
-                        <h4 style="margin-bottom: 8px;">Manual Transactions in Analytics</h4>
-                        <p class="settings-hint">
-                            Include manual transactions in analytics alongside imported bank statements.
-                            Set a start date to avoid duplicates (typically the date after your last bank import).
-                        </p>
-                        <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
-                            <div class="form-group" style="margin: 0;">
-                                <label>
-                                    <input type="checkbox" id="includeManualInAnalytics" onchange="toggleManualAnalytics()">
-                                    Include manual transactions in analytics
-                                </label>
-                            </div>
-                            <div class="form-group" style="margin: 0;">
-                                <label>Start Date</label>
-                                <input type="date" id="manualAnalyticsStartDate" disabled>
-                            </div>
-                            <button onclick="saveManualAnalyticsSettings()" style="padding: 8px 16px;">Save Settings</button>
-                        </div>
-
-                        <hr class="settings-divider">
-
                         <h4 style="margin-bottom: 8px;">Monthly Expected Income</h4>
                         <p class="settings-hint">
                             Set your fixed monthly income (e.g. salary). The analytics header will use this instead of
@@ -719,7 +627,6 @@
     <script src="js/analytics.js"></script>
     <script src="js/categories.js"></script>
     <script src="js/bank-profiles.js"></script>
-    <script src="js/manual-transactions.js"></script>
     <script src="js/rules.js"></script>
     <script src="js/budget.js"></script>
     <script src="js/planner.js"></script>

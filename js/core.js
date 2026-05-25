@@ -33,7 +33,6 @@
   §9.  CATEGORIES
   §10. BANK PROFILES
        10.1. UI Helpers & Navigation
-  §11. MANUAL TRANSACTIONS
   §12. TRANSACTION RULES
   §13. BUDGET
   §14. PLANNER (Emergency Fund)

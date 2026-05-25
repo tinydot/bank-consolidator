@@ -1205,24 +1205,6 @@ function renderMonthView() {
         ORDER BY t.date, t.amount
     `, [monthKey]);
 
-    // ── Manual transactions (respects analytics settings) ─────────────────
-    const includeManual   = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'include_manual_in_analytics'") === '1';
-    const manualStartDate = includeManual
-        ? (dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'manual_analytics_start_date'") || '')
-        : null;
-
-    let manualRows = [];
-    if (includeManual && manualStartDate) {
-        manualRows = dbHelpers.queryAll(`
-            SELECT mt.date, mt.description, mt.amount,
-                   c.name AS cat_name, c.icon AS cat_icon, c.color AS cat_color
-            FROM manual_transactions mt
-            LEFT JOIN categories c ON mt.category_id = c.id
-            WHERE strftime('%Y-%m', mt.date) = ? AND mt.date >= ?
-            ORDER BY mt.date, mt.amount
-        `, [monthKey, manualStartDate]);
-    }
-
     // ── Planner commitments ────────────────────────────────────────────────
     const commitmentRows = dbHelpers.queryAll(`
         SELECT ec.id, ec.description, ec.amount, ec.type,
@@ -1243,7 +1225,6 @@ function renderMonthView() {
 
     // ── Index by day ───────────────────────────────────────────────────────
     const txByDay             = {};
-    const manualByDay         = {};
     const commitmentsByDay    = {};
     const monthlyNoDay        = []; // monthly commitments without a specific day
     const workdayCommitments  = []; // apply to every Mon–Fri
@@ -1253,12 +1234,6 @@ function renderMonthView() {
         const day = parseInt(date.split('-')[2]);
         if (!txByDay[day]) txByDay[day] = [];
         txByDay[day].push({ desc, amount, catName: catName || 'Uncategorised', catColor: catColor || '#95a5a6', catIcon: catIcon || '📦' });
-    });
-
-    manualRows.forEach(([date, desc, amount, catName, catIcon, catColor]) => {
-        const day = parseInt(date.split('-')[2]);
-        if (!manualByDay[day]) manualByDay[day] = [];
-        manualByDay[day].push({ desc, amount, catName: catName || 'Uncategorised', catColor: catColor || '#95a5a6', catIcon: catIcon || '📦' });
     });
 
     commitments.forEach(c => {
@@ -1345,7 +1320,6 @@ function renderMonthView() {
         const isWeekend = colIdx >= 5;
 
         const dayTx          = txByDay[day]          || [];
-        const dayManual      = manualByDay[day]      || [];
         const dayCommitments = commitmentsByDay[day] || [];
         // Workday/nonworkday commitments apply to every applicable day
         const dayWorkday     = isWeekend ? [] : workdayCommitments;
@@ -1372,15 +1346,6 @@ function renderMonthView() {
             html += `<span style="color:#3498db; font-weight:600;">${dayTx.length}tx</span>`;
             if (spend  > 0) html += ` <span style="color:#e74c3c;">-${fromCents(spend).toFixed(0)}</span>`;
             if (income > 0) html += ` <span style="color:#27ae60;">+${fromCents(income).toFixed(0)}</span>`;
-            html += `</div>`;
-        }
-
-        // Manual transactions badge
-        if (dayManual.length) {
-            const spend = dayManual.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
-            html += `<div style="background:#fff3e0; border-left:3px solid #e67e22; border-radius:2px; padding:2px 4px; margin-bottom:2px; font-size:10px; white-space:nowrap; overflow:hidden;">`;
-            html += `<span style="color:#e67e22; font-weight:600;">${dayManual.length}m</span>`;
-            if (spend > 0) html += ` <span style="color:#e74c3c;">-${fromCents(spend).toFixed(0)}</span>`;
             html += `</div>`;
         }
 
@@ -1447,26 +1412,6 @@ function showPlannerDayDetail(dateStr) {
         ORDER BY t.amount
     `, [dateStr]);
 
-    // ── Manual transactions ────────────────────────────────────────────────
-    const includeManual   = dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'include_manual_in_analytics'") === '1';
-    const manualStartDate = includeManual
-        ? (dbHelpers.queryValue("SELECT value FROM settings WHERE key = 'manual_analytics_start_date'") || '')
-        : null;
-
-    let manualRows = [];
-    if (includeManual && manualStartDate && dateStr >= manualStartDate) {
-        manualRows = dbHelpers.queryAll(`
-            SELECT mt.description, mt.amount,
-                   c.name AS cat_name, c.icon AS cat_icon, c.color AS cat_color,
-                   sc.name AS subcat_name
-            FROM manual_transactions mt
-            LEFT JOIN categories c  ON mt.category_id    = c.id
-            LEFT JOIN subcategories sc ON mt.subcategory_id = sc.id
-            WHERE mt.date = ?
-            ORDER BY mt.amount
-        `, [dateStr]);
-    }
-
     // ── Planner commitments for this exact day ─────────────────────────────
     const monthKey = `${year}-${String(month).padStart(2, '0')}`;
     const commitmentRows = dbHelpers.queryAll(`
@@ -1513,7 +1458,7 @@ function showPlannerDayDetail(dateStr) {
     html += `<button class="secondary-btn" style="padding:3px 10px; font-size:12px;" onclick="closePlannerDayDetail()">✕ Close</button>`;
     html += `</div>`;
 
-    if (!txRows.length && !manualRows.length && !dayCommitments.length && !dayWorkdayItems.length && !dayNonwkdItems.length) {
+    if (!txRows.length && !dayCommitments.length && !dayWorkdayItems.length && !dayNonwkdItems.length) {
         html += `<div style="color:#95a5a6; font-size:13px; font-style:italic; text-align:center; padding:16px 0;">No transactions or commitments for this day.</div>`;
     }
 
@@ -1541,26 +1486,6 @@ function showPlannerDayDetail(dateStr) {
         html += `</div>`;
     }
 
-    // Manual transactions section
-    if (manualRows.length) {
-        const totalSpend = manualRows.filter(r => r[1] < 0).reduce((s, r) => s + Math.abs(r[1]), 0);
-        html += `<div style="margin-bottom:14px;">`;
-        html += `<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">`;
-        html += `<span style="font-size:11px; font-weight:700; color:#e67e22; text-transform:uppercase; letter-spacing:0.5px;">✏️ Manual Transactions (${manualRows.length})</span>`;
-        if (totalSpend > 0) html += `<span style="font-size:12px; color:#e74c3c;">-S$${fmtMoney(totalSpend)}</span>`;
-        html += `</div>`;
-        manualRows.forEach(([desc, amount, catName, catIcon, catColor, subcatName]) => {
-            const isSpend = amount < 0;
-            html += `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; background:#fff8f0; border-radius:4px; margin-bottom:3px; border-left:3px solid #e67e22;">`;
-            html += `<div style="flex:1; min-width:0; margin-right:8px;">`;
-            html += `<div style="font-size:12px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(desc)}</div>`;
-            html += `<div style="font-size:10px; color:#95a5a6;">${escapeHtml(catIcon || '📦')} ${escapeHtml(catName || 'Uncategorised')}${subcatName ? ` › ${escapeHtml(subcatName)}` : ''}</div>`;
-            html += `</div>`;
-            html += `<span style="font-size:13px; font-weight:700; color:${isSpend ? '#e74c3c' : '#27ae60'}; white-space:nowrap;">${isSpend ? '-' : '+'}S$${fmtMoney(amount)}</span>`;
-            html += `</div>`;
-        });
-        html += `</div>`;
-    }
 
     // Expected commitments section (term/dated + monthly with specific day)
     if (dayCommitments.length) {

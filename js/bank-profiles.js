@@ -411,20 +411,6 @@ function switchTab(tab) {
     activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
     document.getElementById(`${tab}-tab`).classList.add('active');
 
-    if (tab === 'manual') {
-        // Default date to today
-        const dateInput = document.getElementById('manualDate');
-        if (!dateInput.value) {
-            dateInput.value = new Date().toISOString().split('T')[0];
-        }
-        // Default month filter to current month
-        const monthInput = document.getElementById('manualFilterMonth');
-        if (!monthInput.value) {
-            monthInput.value = new Date().toISOString().slice(0, 7);
-        }
-        loadManualTransactions();
-    }
-
     if (tab === 'planner') {
         loadPlanner();
     }
@@ -437,6 +423,31 @@ function switchTab(tab) {
     if (tab === 'settings') {
         loadManualAnalyticsSettings();
         loadMonthlyIncomeSettings();
+    }
+}
+
+function switchTransactionsSubTab(sub) {
+    document.querySelectorAll('.sub-tab-button').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('#transactions-tab > .sub-tab-content').forEach(c => c.classList.remove('active'));
+
+    const activeBtn = document.querySelector(`[onclick="switchTransactionsSubTab('${sub}')"]`);
+    if (activeBtn) activeBtn.classList.add('active');
+
+    const panelId = sub === 'list' ? 'transactions-list-sub'
+                  : sub === 'import' ? 'import-tab'
+                  : 'manual-tab';
+    document.getElementById(panelId).classList.add('active');
+
+    if (sub === 'manual') {
+        const dateInput = document.getElementById('manualDate');
+        if (!dateInput.value) {
+            dateInput.value = new Date().toISOString().split('T')[0];
+        }
+        const monthInput = document.getElementById('manualFilterMonth');
+        if (!monthInput.value) {
+            monthInput.value = new Date().toISOString().slice(0, 7);
+        }
+        loadManualTransactions();
     }
 }
 

@@ -100,6 +100,53 @@ h1 {
     display: block;
 }
 
+/* Sub-tabs (used inside the Transactions tab) */
+.sub-tab-buttons {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid #ecf0f1;
+    margin-bottom: 20px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.sub-tab-buttons::-webkit-scrollbar {
+    display: none;
+}
+
+.sub-tab-button {
+    padding: 8px 14px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    color: #7f8c8d;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.sub-tab-button:hover {
+    color: #2c3e50;
+}
+
+.sub-tab-button.active {
+    color: #3498db;
+    border-bottom-color: #3498db;
+    font-weight: 600;
+}
+
+.sub-tab-content {
+    display: none;
+}
+
+.sub-tab-content.active {
+    display: block;
+}
+
 .drop-zone {
     border: 3px dashed #bdc3c7;
     border-radius: 12px;

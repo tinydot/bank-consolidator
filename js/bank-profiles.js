@@ -423,6 +423,10 @@ function switchTab(tab) {
     if (tab === 'settings') {
         loadMonthlyIncomeSettings();
     }
+
+    if (tab === 'transactions') {
+        populateTemplateAccountSelect();
+    }
 }
 
 function toggleSettingsSection(headerBtn) {

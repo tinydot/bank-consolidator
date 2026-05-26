@@ -430,6 +430,7 @@ async function addAccount() {
 
         markDirty();
         updateAccountOptions();
+        populateTemplateAccountSelect();
         cancelAddAccount();
 
         // Auto-select the new account
@@ -972,6 +973,147 @@ async function deleteImportRecord(importId) {
     markDirty();
     await loadImportHistory();
     showMessage('success', 'Import record removed');
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// §4.6. CSV Template Download (for manual entry from banks w/o CSV export)
+// ─────────────────────────────────────────────────────────────────────────
+
+function populateTemplateAccountSelect() {
+    const select = document.getElementById('templateAccountSelect');
+    if (!select) return;
+
+    const result = db.exec(`
+        SELECT a.id, a.account_name, a.account_number, b.name
+        FROM accounts a
+        JOIN banks b ON a.bank_id = b.id
+        ORDER BY b.name, a.account_name
+    `);
+
+    const prev = select.value;
+    select.innerHTML = '<option value="">Select account...</option>';
+
+    if (!result.length) {
+        select.innerHTML += '<option value="" disabled>(no accounts yet — create one by importing a CSV first)</option>';
+        return;
+    }
+
+    result[0].values.forEach(([accountId, accountName, accountNumber, bankName]) => {
+        const acctLabel = accountNumber ? `${accountName} (...${accountNumber})` : accountName;
+        select.innerHTML += `<option value="${accountId}">${escapeHtml(bankName)} — ${escapeHtml(acctLabel)}</option>`;
+    });
+
+    if (prev) select.value = prev;
+}
+
+function formatTemplateDate(format) {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const yy = String(yyyy).slice(-2);
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+    switch (format) {
+        case 'DD/MM/YYYY':  return `${dd}/${mm}/${yyyy}`;
+        case 'MM/DD/YYYY':  return `${mm}/${dd}/${yyyy}`;
+        case 'DD-MM-YYYY':  return `${dd}-${mm}-${yyyy}`;
+        case 'MM-DD-YYYY':  return `${mm}-${dd}-${yyyy}`;
+        case 'DD/MM/YY':    return `${dd}/${mm}/${yy}`;
+        case 'MM/DD/YY':    return `${mm}/${dd}/${yy}`;
+        case 'DD-Mon-YY':   return `${dd}-${mon}-${yy}`;
+        case 'DD-Mon-YYYY': return `${dd}-${mon}-${yyyy}`;
+        default:            return `${yyyy}-${mm}-${dd}`;
+    }
+}
+
+function csvEscape(value) {
+    return `"${String(value ?? '').replace(/"/g, '""')}"`;
+}
+
+function downloadCsvTemplate() {
+    const accountId = document.getElementById('templateAccountSelect').value;
+    if (!accountId) {
+        showMessage('error', 'Please select an account');
+        return;
+    }
+
+    const row = dbHelpers.queryAll(`
+        SELECT a.account_name, a.account_number, b.id, b.name
+        FROM accounts a JOIN banks b ON a.bank_id = b.id
+        WHERE a.id = ?
+    `, [accountId])[0];
+    if (!row) {
+        showMessage('error', 'Account not found');
+        return;
+    }
+    const [accountName, accountNumber, bankId, bankName] = row;
+
+    const profile = bankProfiles.find(p => p.id === bankId);
+    if (!profile) {
+        showMessage('error', 'Bank profile not found');
+        return;
+    }
+
+    const hasHeader = profile.hasHeader !== false;
+    const skipRows = profile.skipRows || 0;
+    const useCreditDebit = !!(profile.creditColumn && profile.debitColumn);
+    const exampleDate = formatTemplateDate(profile.dateFormat || 'auto');
+    const descCols = String(profile.descriptionColumn || '').split(',').map(s => s.trim()).filter(Boolean);
+
+    let csvLines = [];
+    for (let i = 0; i < skipRows; i++) csvLines.push('');
+
+    if (hasHeader) {
+        const headers = [];
+        const push = (name) => { if (name && !headers.includes(name)) headers.push(name); };
+        push(profile.dateColumn);
+        descCols.forEach(push);
+        if (useCreditDebit) {
+            push(profile.creditColumn);
+            push(profile.debitColumn);
+        } else {
+            push(profile.amountColumn);
+        }
+
+        const exampleRow = headers.map(h => {
+            if (h === profile.dateColumn) return exampleDate;
+            if (h === profile.amountColumn) return '-12.34';
+            if (h === profile.creditColumn) return '';
+            if (h === profile.debitColumn) return '12.34';
+            if (h === descCols[0]) return 'EXAMPLE - replace this row (negative amount = expense)';
+            return '';
+        });
+
+        csvLines.push(headers.map(csvEscape).join(','));
+        csvLines.push(exampleRow.map(csvEscape).join(','));
+    } else {
+        const indices = [
+            parseInt(profile.dateColumn),
+            ...descCols.map(c => parseInt(c)),
+            useCreditDebit ? parseInt(profile.creditColumn) : parseInt(profile.amountColumn),
+            useCreditDebit ? parseInt(profile.debitColumn) : NaN
+        ].filter(n => Number.isFinite(n));
+        const width = Math.max(...indices) + 1;
+
+        const exampleRow = new Array(width).fill('');
+        exampleRow[parseInt(profile.dateColumn)] = exampleDate;
+        if (descCols[0] !== undefined) {
+            exampleRow[parseInt(descCols[0])] = 'EXAMPLE - replace this row (negative amount = expense)';
+        }
+        if (useCreditDebit) {
+            exampleRow[parseInt(profile.debitColumn)] = '12.34';
+        } else {
+            exampleRow[parseInt(profile.amountColumn)] = '-12.34';
+        }
+        csvLines.push(exampleRow.map(csvEscape).join(','));
+    }
+
+    const csv = csvLines.join('\n') + '\n';
+    const safe = (s) => String(s || '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
+    const acctLabel = accountNumber ? `${accountName}-${accountNumber}` : accountName;
+    const filename = `template-${safe(bankName)}-${safe(acctLabel)}.csv`;
+    downloadFile(csv, filename, 'text/csv');
+    showMessage('success', `Template downloaded for ${bankName} — ${accountName}`);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

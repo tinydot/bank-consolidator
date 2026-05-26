@@ -33,146 +33,128 @@
 
         <div class="tabs">
             <div class="tab-buttons">
-                <button class="tab-button active" onclick="switchTab('import')">📥 Import</button>
-                <button class="tab-button" onclick="switchTab('transactions')">💳 Transactions</button>
+                <button class="tab-button active" onclick="switchTab('transactions')">💳 Transactions</button>
                 <button class="tab-button" onclick="switchTab('analytics')">📊 Analytics</button>
-                <button class="tab-button" onclick="switchTab('manual')">✏️ Manual</button>
                 <button class="tab-button" onclick="switchTab('budget')">💰 Budget</button>
                 <button class="tab-button" onclick="switchTab('planner')">📋 Planner</button>
                 <button class="tab-button" onclick="switchTab('settings')">🔧 Settings</button>
             </div>
 
-            <!-- IMPORT TAB -->
-            <div id="import-tab" class="tab-content active">
-                <div id="import-message"></div>
-                
-                <label for="fileInput" style="display: block; cursor: pointer;">
-                    <div class="drop-zone" id="dropZone">
-                        <div class="drop-zone-icon">📁</div>
-                        <h3>Drop CSV files here or click to browse</h3>
-                        <p style="color: #7f8c8d; margin-top: 10px;">Supports multiple bank formats</p>
-                    </div>
-                </label>
-                <input type="file" id="fileInput" accept=".csv" multiple style="display: none;">
+            <!-- TRANSACTIONS TAB -->
+            <div id="transactions-tab" class="tab-content active">
+                <div id="import-bar">
+                    <div id="import-message"></div>
+                    <label for="fileInput" class="compact-drop-zone" id="dropZone">
+                        <span class="compact-drop-icon">📁</span>
+                        <span>Drop CSV here or click to import</span>
+                    </label>
+                    <input type="file" id="fileInput" accept=".csv" multiple style="display: none;">
 
-                <details style="margin-top: 18px; background: #f8f9fa; border: 1px solid #e1e8ed; border-radius: 8px; padding: 12px 16px;">
-                    <summary style="cursor: pointer; font-weight: 600; color: #2c3e50;">📄 Download CSV template (for manual entry)</summary>
-                    <p style="color: #7f8c8d; font-size: 13px; margin: 10px 0;">
-                        For banks without CSV export. Pick an account and download a CSV with the matching column layout and an example row. Edit it in a spreadsheet, then drop it back in to import.
-                    </p>
-                    <div class="form-group">
-                        <label>Account</label>
-                        <select id="templateAccountSelect">
-                            <option value="">Select account...</option>
-                        </select>
-                    </div>
-                    <button onclick="downloadCsvTemplate()" class="secondary-btn">Download Template</button>
-                </details>
+                    <details style="margin-top: 12px; background: #f8f9fa; border: 1px solid #e1e8ed; border-radius: 8px; padding: 12px 16px;">
+                        <summary style="cursor: pointer; font-weight: 600; color: #2c3e50;">📄 Download CSV template (for manual entry)</summary>
+                        <p style="color: #7f8c8d; font-size: 13px; margin: 10px 0;">
+                            For banks without CSV export. Pick an account and download a CSV with the matching column layout and an example row. Edit it in a spreadsheet, then drop it back in to import.
+                        </p>
+                        <div class="form-group">
+                            <label>Account</label>
+                            <select id="templateAccountSelect">
+                                <option value="">Select account...</option>
+                            </select>
+                        </div>
+                        <button onclick="downloadCsvTemplate()" class="secondary-btn">Download Template</button>
+                    </details>
 
-                <div id="bankProfileSelector" style="display: none;">
-                    <div class="form-group">
-                        <label>Select Bank Profile</label>
+                    <!-- Hidden controls retained so existing import pipeline keeps working -->
+                    <div id="bankProfileSelector" style="display: none;">
                         <select id="bankProfileSelect" onchange="updateAccountOptions(); updateImportPreview(true)"></select>
-                    </div>
-                    <div class="form-group">
-                        <label>Date Format</label>
                         <select id="importDateFormat" onchange="updateImportPreview()">
                             <option value="auto">Auto-detect</option>
-                            <option value="YYYY-MM-DD">YYYY-MM-DD (e.g. 2025-01-31)</option>
-                            <option value="DD/MM/YYYY">DD/MM/YYYY (e.g. 31/01/2025)</option>
-                            <option value="MM/DD/YYYY">MM/DD/YYYY (e.g. 01/31/2025)</option>
-                            <option value="DD-MM-YYYY">DD-MM-YYYY (e.g. 31-01-2025)</option>
-                            <option value="MM-DD-YYYY">MM-DD-YYYY (e.g. 01-31-2025)</option>
-                            <option value="DD/MM/YY">DD/MM/YY (e.g. 31/01/25)</option>
-                            <option value="MM/DD/YY">MM/DD/YY (e.g. 01/31/25)</option>
-                            <option value="DD-Mon-YY">DD-Mon-YY (e.g. 16-Feb-26)</option>
-                            <option value="DD-Mon-YYYY">DD-Mon-YYYY (e.g. 16-Feb-2026)</option>
+                            <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                            <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                            <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                            <option value="DD-MM-YYYY">DD-MM-YYYY</option>
+                            <option value="MM-DD-YYYY">MM-DD-YYYY</option>
+                            <option value="DD/MM/YY">DD/MM/YY</option>
+                            <option value="MM/DD/YY">MM/DD/YY</option>
+                            <option value="DD-Mon-YY">DD-Mon-YY</option>
+                            <option value="DD-Mon-YYYY">DD-Mon-YYYY</option>
                         </select>
-                        <p style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">Overrides the profile setting for this import only</p>
+                        <select id="accountSelect" onchange="updateImportPreview()"></select>
                     </div>
-                    <div class="form-group">
-                        <label>Select Account</label>
-                        <select id="accountSelect" onchange="updateImportPreview()">
-                            <option value="">Select account...</option>
-                        </select>
-                        <button onclick="showAddAccount()" style="margin-top: 10px;" class="secondary-btn">+ Add New Account</button>
-                    </div>
-                    <div id="addAccountForm" style="display: none; background: #f8f9fa; padding: 15px; border-radius: 8px; margin-top: 10px;">
-                        <div class="form-group">
-                            <label>Account Name</label>
-                            <input type="text" id="newAccountName" placeholder="e.g., Checking, Savings, Credit Card">
-                        </div>
-                        <div class="form-group">
-                            <label>Account Number (last 4 digits, optional)</label>
-                            <input type="text" id="newAccountNumber" placeholder="e.g., 1234">
-                        </div>
-                        <button onclick="addAccount()">Create Account</button>
-                        <button class="secondary-btn" onclick="cancelAddAccount()">Cancel</button>
-                    </div>
-                    <div id="importPreview" style="margin-bottom: 20px;"></div>
-                    <button onclick="processUploadedFiles()" style="margin-top: 15px;">Import Transactions</button>
-                    <button class="secondary-btn" onclick="cancelUpload()">Cancel</button>
+
+                    <div id="importPreview"></div>
                 </div>
 
-                <div id="mappingPreview"></div>
-            </div>
-
-            <!-- TRANSACTIONS TAB -->
-            <div id="transactions-tab" class="tab-content">
                 <div class="filters">
-                    <div class="form-group">
-                        <label>Bank</label>
-                        <select id="filterBank" onchange="updateAccountFilter(); loadTransactions();">
-                            <option value="">All Banks</option>
-                        </select>
+                        <div class="form-group">
+                            <label>Bank</label>
+                            <select id="filterBank" onchange="updateAccountFilter(); loadTransactions();">
+                                <option value="">All Banks</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Account</label>
+                            <select id="filterAccount" onchange="loadTransactions()">
+                                <option value="">All Accounts</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Category</label>
+                            <select id="filterCategory" onchange="updateSubcategoryFilter(); loadTransactions();">
+                                <option value="">All Categories</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Subcategory</label>
+                            <select id="filterSubcategory" onchange="loadTransactions()">
+                                <option value="">All Subcategories</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>From Date</label>
+                            <input type="date" id="filterDateFrom" onchange="loadTransactions()">
+                        </div>
+                        <div class="form-group">
+                            <label>To Date</label>
+                            <input type="date" id="filterDateTo" onchange="loadTransactions()">
+                        </div>
+                        <div class="form-group">
+                            <label>Search</label>
+                            <input type="text" id="filterSearch" placeholder="Description..." oninput="debouncedLoadTransactions()">
+                        </div>
+                        <div class="form-group">
+                            <label>Status</label>
+                            <select id="filterShowIgnored" onchange="loadTransactions()">
+                                <option value="active">Active only</option>
+                                <option value="ignored">Ignored only</option>
+                                <option value="all">All transactions</option>
+                            </select>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label>Account</label>
-                        <select id="filterAccount" onchange="loadTransactions()">
-                            <option value="">All Accounts</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Category</label>
-                        <select id="filterCategory" onchange="updateSubcategoryFilter(); loadTransactions();">
-                            <option value="">All Categories</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Subcategory</label>
-                        <select id="filterSubcategory" onchange="loadTransactions()">
-                            <option value="">All Subcategories</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>From Date</label>
-                        <input type="date" id="filterDateFrom" onchange="loadTransactions()">
-                    </div>
-                    <div class="form-group">
-                        <label>To Date</label>
-                        <input type="date" id="filterDateTo" onchange="loadTransactions()">
-                    </div>
-                    <div class="form-group">
-                        <label>Search</label>
-                        <input type="text" id="filterSearch" placeholder="Description..." oninput="debouncedLoadTransactions()">
-                    </div>
-                    <div class="form-group">
-                        <label>Status</label>
-                        <select id="filterShowIgnored" onchange="loadTransactions()">
-                            <option value="active">Active only</option>
-                            <option value="ignored">Ignored only</option>
-                            <option value="all">All transactions</option>
-                        </select>
-                    </div>
-                </div>
 
-                <div class="button-group">
-                    <button onclick="exportToCSV()">📥 Export to CSV</button>
-                    <button onclick="exportReport()" style="background:#27ae60; color:white; border-color:#27ae60;">📊 Export Report</button>
-                </div>
+                    <div class="button-group">
+                        <button onclick="exportToCSV()">📥 Export to CSV</button>
+                        <button onclick="exportReport()" style="background:#27ae60; color:white; border-color:#27ae60;">📊 Export Report</button>
+                    </div>
 
                 <div id="transactionsContainer"></div>
+                <div id="mappingPreview"></div>
+
+                <!-- Hidden "add account" form, retained for the (rare) add-account flow -->
+                <div id="addAccountForm" style="display: none; background: #f8f9fa; padding: 15px; border-radius: 8px; margin-top: 10px;">
+                    <div class="form-group">
+                        <label>Account Name</label>
+                        <input type="text" id="newAccountName" placeholder="e.g., Checking, Savings, Credit Card">
+                    </div>
+                    <div class="form-group">
+                        <label>Account Number (last 4 digits, optional)</label>
+                        <input type="text" id="newAccountNumber" placeholder="e.g., 1234">
+                    </div>
+                    <button onclick="addAccount()">Create Account</button>
+                    <button class="secondary-btn" onclick="cancelAddAccount()">Cancel</button>
+                </div>
             </div>
+            <!-- /TRANSACTIONS TAB -->
 
             <!-- ANALYTICS TAB -->
             <div id="analytics-tab" class="tab-content">
@@ -201,74 +183,6 @@
                 <div class="chart-container">
                     <h3 style="margin-bottom: 20px;">Last Transaction Date by Account</h3>
                     <div id="lastTransactionTable"></div>
-                </div>
-            </div>
-
-            <!-- MANUAL TAB -->
-            <div id="manual-tab" class="tab-content">
-                <div id="manual-message"></div>
-
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
-
-                    <!-- Entry Form -->
-                    <div>
-                        <h3 style="margin-bottom: 20px;">Add Transaction</h3>
-                        <div class="form-group">
-                            <label>Date</label>
-                            <input type="date" id="manualDate">
-                        </div>
-                        <div class="form-group">
-                            <label>Amount</label>
-                            <div style="display: flex; gap: 10px; align-items: center;">
-                                <select id="manualSign" style="width: auto;">
-                                    <option value="-">− Expense</option>
-                                    <option value="+">+ Income</option>
-                                </select>
-                                <input type="number" id="manualAmount" placeholder="0.00" min="0" step="0.01" style="flex: 1;">
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label>Description</label>
-                            <input type="text" id="manualDescription" placeholder="e.g. Coffee with client">
-                        </div>
-                        <button onclick="addManualTransaction()">Add Transaction</button>
-                    </div>
-
-                    <!-- Summary -->
-                    <div>
-                        <h3 style="margin-bottom: 20px;">Summary</h3>
-                        <div id="manualSummary" style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                                <span style="color: #7f8c8d;">Total Entries</span>
-                                <strong id="manualCount">0</strong>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                                <span style="color: #7f8c8d;">Total Income</span>
-                                <strong id="manualIncome" class="transaction-positive">$0.00</strong>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                                <span style="color: #7f8c8d;">Total Expenses</span>
-                                <strong id="manualExpenses" class="transaction-negative">$0.00</strong>
-                            </div>
-                            <hr style="border: none; border-top: 1px solid #ecf0f1; margin: 15px 0;">
-                            <div style="display: flex; justify-content: space-between;">
-                                <span style="color: #7f8c8d;">Net</span>
-                                <strong id="manualNet">$0.00</strong>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Transactions List -->
-                <div style="margin-top: 30px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                        <h3>Entries</h3>
-                        <div style="display: flex; gap: 10px; align-items: center;">
-                            <button onclick="applyRulesToManualTransactions()" class="secondary-btn" style="padding: 6px 12px; font-size: 13px;">⚙️ Apply Rules</button>
-                            <input type="month" id="manualFilterMonth" onchange="loadManualTransactions()" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
-                        </div>
-                    </div>
-                    <div id="manualTransactionsContainer"></div>
                 </div>
             </div>
 
@@ -492,9 +406,6 @@
                             <div style="width:10px; height:10px; background:#3498db; border-radius:2px;"></div>Bank transactions
                         </div>
                         <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#555;">
-                            <div style="width:10px; height:10px; background:#e67e22; border-radius:2px;"></div>Manual transactions
-                        </div>
-                        <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#555;">
                             <div style="width:10px; height:10px; background:#9b59b6; border-radius:2px;"></div>Dated commitments
                         </div>
                         <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#555;">
@@ -524,27 +435,6 @@
                         <span class="settings-section-chevron">▾</span>
                     </button>
                     <div class="settings-section-body">
-                        <h4 style="margin-bottom: 8px;">Manual Transactions in Analytics</h4>
-                        <p class="settings-hint">
-                            Include manual transactions in analytics alongside imported bank statements.
-                            Set a start date to avoid duplicates (typically the date after your last bank import).
-                        </p>
-                        <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
-                            <div class="form-group" style="margin: 0;">
-                                <label>
-                                    <input type="checkbox" id="includeManualInAnalytics" onchange="toggleManualAnalytics()">
-                                    Include manual transactions in analytics
-                                </label>
-                            </div>
-                            <div class="form-group" style="margin: 0;">
-                                <label>Start Date</label>
-                                <input type="date" id="manualAnalyticsStartDate" disabled>
-                            </div>
-                            <button onclick="saveManualAnalyticsSettings()" style="padding: 8px 16px;">Save Settings</button>
-                        </div>
-
-                        <hr class="settings-divider">
-
                         <h4 style="margin-bottom: 8px;">Monthly Expected Income</h4>
                         <p class="settings-hint">
                             Set your fixed monthly income (e.g. salary). The analytics header will use this instead of
@@ -725,7 +615,6 @@
     <script src="js/analytics.js"></script>
     <script src="js/categories.js"></script>
     <script src="js/bank-profiles.js"></script>
-    <script src="js/manual-transactions.js"></script>
     <script src="js/rules.js"></script>
     <script src="js/budget.js"></script>
     <script src="js/planner.js"></script>

@@ -75,7 +75,7 @@ function migrateMoneyToCents() {
     if (done) return;
 
     db.run(`UPDATE transactions         SET amount         = CAST(ROUND(amount         * 100) AS INTEGER)`);
-    db.run(`UPDATE manual_transactions  SET amount         = CAST(ROUND(amount         * 100) AS INTEGER)`);
+    try { db.run(`UPDATE manual_transactions SET amount = CAST(ROUND(amount * 100) AS INTEGER)`); } catch(e) {}
     db.run(`UPDATE budget               SET monthly_limit  = CAST(ROUND(monthly_limit  * 100) AS INTEGER)`);
     db.run(`UPDATE expense_commitments  SET amount         = CAST(ROUND(amount         * 100) AS INTEGER)`);
     db.run(`UPDATE activity_items       SET estimated_cost = CAST(ROUND(estimated_cost * 100) AS INTEGER) WHERE estimated_cost IS NOT NULL`);
@@ -207,26 +207,6 @@ function createTables() {
     // Add manual_category column to existing databases
     try { db.run('ALTER TABLE transactions ADD COLUMN manual_category INTEGER DEFAULT 0'); } catch(e) {}
     try { db.run('ALTER TABLE transactions ADD COLUMN note TEXT'); } catch(e) {}
-
-    db.run(`
-        CREATE TABLE IF NOT EXISTS manual_transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL,
-            description TEXT NOT NULL,
-            amount INTEGER NOT NULL,
-            category_id INTEGER,
-            subcategory_id INTEGER,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (category_id) REFERENCES categories(id),
-            FOREIGN KEY (subcategory_id) REFERENCES subcategories(id)
-        )
-    `);
-
-    db.run(`CREATE INDEX IF NOT EXISTS idx_manual_date ON manual_transactions(date)`);
-
-    // Add category columns to existing manual_transactions tables
-    try { db.run('ALTER TABLE manual_transactions ADD COLUMN category_id INTEGER'); } catch(e) {}
-    try { db.run('ALTER TABLE manual_transactions ADD COLUMN subcategory_id INTEGER'); } catch(e) {}
 
     db.run(`
         CREATE TABLE IF NOT EXISTS settings (

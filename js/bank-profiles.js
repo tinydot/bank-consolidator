@@ -411,20 +411,6 @@ function switchTab(tab) {
     activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
     document.getElementById(`${tab}-tab`).classList.add('active');
 
-    if (tab === 'manual') {
-        // Default date to today
-        const dateInput = document.getElementById('manualDate');
-        if (!dateInput.value) {
-            dateInput.value = new Date().toISOString().split('T')[0];
-        }
-        // Default month filter to current month
-        const monthInput = document.getElementById('manualFilterMonth');
-        if (!monthInput.value) {
-            monthInput.value = new Date().toISOString().slice(0, 7);
-        }
-        loadManualTransactions();
-    }
-
     if (tab === 'planner') {
         loadPlanner();
     }
@@ -435,11 +421,10 @@ function switchTab(tab) {
     }
 
     if (tab === 'settings') {
-        loadManualAnalyticsSettings();
         loadMonthlyIncomeSettings();
     }
 
-    if (tab === 'import') {
+    if (tab === 'transactions') {
         populateTemplateAccountSelect();
     }
 }

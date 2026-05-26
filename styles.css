@@ -100,25 +100,68 @@ h1 {
     display: block;
 }
 
-.drop-zone {
-    border: 3px dashed #bdc3c7;
-    border-radius: 12px;
-    padding: 60px;
-    text-align: center;
-    background: #fafafa;
-    cursor: pointer;
-    transition: all 0.3s;
+/* Compact import bar at top of Transactions tab */
+#import-bar {
     margin-bottom: 20px;
 }
 
-.drop-zone:hover, .drop-zone.drag-over {
-    border-color: #3498db;
-    background: #ecf7ff;
+.compact-drop-zone {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border: 2px dashed #bdc3c7;
+    border-radius: 8px;
+    padding: 14px 20px;
+    background: #fafafa;
+    cursor: pointer;
+    color: #7f8c8d;
+    font-size: 14px;
+    transition: all 0.2s;
 }
 
-.drop-zone-icon {
-    font-size: 48px;
-    margin-bottom: 15px;
+.compact-drop-zone:hover, .compact-drop-zone.drag-over {
+    border-color: #3498db;
+    background: #ecf7ff;
+    color: #2c3e50;
+}
+
+.compact-drop-icon {
+    font-size: 20px;
+}
+
+.import-preview-box {
+    margin-top: 12px;
+    padding: 14px 18px;
+    background: #f8f9fa;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.import-preview-summary {
+    font-size: 14px;
+    color: #2c3e50;
+}
+
+.import-preview-summary .new-count {
+    font-weight: 600;
+    color: #27ae60;
+}
+
+.import-preview-summary .skip-count {
+    color: #7f8c8d;
+    font-size: 12px;
+    margin-left: 8px;
+}
+
+.import-preview-actions {
+    display: flex;
+    gap: 8px;
 }
 
 .bank-profile {

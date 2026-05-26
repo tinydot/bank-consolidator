@@ -33,7 +33,6 @@
   §9.  CATEGORIES
   §10. BANK PROFILES
        10.1. UI Helpers & Navigation
-  §11. MANUAL TRANSACTIONS
   §12. TRANSACTION RULES
   §13. BUDGET
   §14. PLANNER (Emergency Fund)
@@ -60,7 +59,7 @@ let budgetMonth = new Date().toISOString().slice(0, 7); // YYYY-MM, current mont
 // ─────────────────────────────────────────────────────────────────────────
 
 const CONFIG = {
-    PAGE_SIZE: 100,
+    PAGE_SIZE: 50,
     DEBOUNCE_MS: 300,
     MAX_FILE_SIZE: 50 * 1024 * 1024, // 50MB
     MAX_CATEGORY_NAME_LENGTH: 50,

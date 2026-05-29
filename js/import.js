@@ -121,9 +121,6 @@ function resetFileSelection() {
     document.getElementById('fileInput').value = '';
     document.getElementById('dropZone').style.display = '';
     document.getElementById('importPreview').innerHTML = '';
-
-    const addAccountForm = document.getElementById('addAccountForm');
-    if (addAccountForm) addAccountForm.style.display = 'none';
 }
 
 function renderImportError(text) {
@@ -385,70 +382,6 @@ function updateAccountOptions() {
     }
 }
 
-function showAddAccount() {
-    document.getElementById('addAccountForm').style.display = 'block';
-}
-
-function cancelAddAccount() {
-    document.getElementById('addAccountForm').style.display = 'none';
-    document.getElementById('newAccountName').value = '';
-    document.getElementById('newAccountNumber').value = '';
-}
-
-async function addAccount() {
-    const accountName = document.getElementById('newAccountName').value.trim();
-    const accountNumber = document.getElementById('newAccountNumber').value.trim();
-    const profileIdx = document.getElementById('bankProfileSelect').value;
-    const profile = bankProfiles[profileIdx];
-
-    // Validate input
-    const validationError = validators.accountName(accountName);
-    if (validationError) {
-        showMessage('error', validationError);
-        return;
-    }
-
-    // Use profile.id directly — banks and bank_profiles are now the same table
-    const bankId = profile.id;
-    if (!bankId) {
-        showMessage('error', 'Bank profile has no ID — please save the profile first');
-        return;
-    }
-
-    showLoading('Creating account...');
-
-    try {
-        const result = dbHelpers.safeRun(`
-            INSERT INTO accounts (bank_id, account_name, account_number)
-            VALUES (?, ?, ?)
-        `, [bankId, accountName, accountNumber || null], 'Add account');
-
-        if (!result.success) {
-            hideLoading();
-            return;
-        }
-
-        markDirty();
-        updateAccountOptions();
-        populateTemplateAccountSelect();
-        cancelAddAccount();
-
-        // Auto-select the new account
-        const newAccountId = dbHelpers.queryValue('SELECT last_insert_rowid()');
-        document.getElementById('accountSelect').value = newAccountId;
-
-        hideLoading();
-        showMessage('success', `Account "${accountName}" added successfully`);
-    } catch (e) {
-        hideLoading();
-        if (e.message.includes('UNIQUE constraint')) {
-            showMessage('error', 'An account with this name already exists for this bank');
-        } else {
-            showMessage('error', 'Error adding account: ' + e.message);
-        }
-    }
-}
-
 async function processUploadedFiles() {
     const accountId = document.getElementById('accountSelect').value;
 
@@ -532,77 +465,6 @@ function updateImportCount(importId, count) {
     db.run(`
         UPDATE imports SET transaction_count = ? WHERE id = ?
     `, [count, importId]);
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// §4.3. Transaction Mapping
-// ─────────────────────────────────────────────────────────────────────────
-
-function mapTransaction(row, profile, importId, dateFormat) {
-    // Handle both header-based (object) and headerless (array) CSVs
-    let date, description, amount;
-
-    if (profile.hasHeader !== false) {
-        // Header-based: row is an object like {Date: "2024-01-15", Description: "...", ...}
-        date = row[profile.dateColumn];
-
-        // Handle multiple description columns (comma-separated)
-        if (profile.descriptionColumn.includes(',')) {
-            const columns = profile.descriptionColumn.split(',').map(c => c.trim());
-            description = columns
-                .map(col => row[col])
-                .filter(val => val && val.trim())
-                .join(' ');
-        } else {
-            description = row[profile.descriptionColumn];
-        }
-
-        // Handle credit/debit columns or single amount column
-        if (profile.creditColumn && profile.debitColumn) {
-            const credit = parseAmount(row[profile.creditColumn]);
-            const debit = parseAmount(row[profile.debitColumn]);
-            amount = credit - debit; // credit is positive, debit is negative
-        } else {
-            const raw = row[profile.amountColumn];
-            if (raw === undefined || raw === null || String(raw).trim() === '') return null;
-            amount = parseAmount(raw);
-        }
-    } else {
-        // Headerless: row is an array like ["2024-01-15", "...", "...", "-50.00"]
-        date = row[parseInt(profile.dateColumn)];
-
-        // Handle multiple description columns (comma-separated indices)
-        if (profile.descriptionColumn.includes(',')) {
-            const indices = profile.descriptionColumn.split(',').map(c => parseInt(c.trim()));
-            description = indices
-                .map(idx => row[idx])
-                .filter(val => val && val.trim())
-                .join(' ');
-        } else {
-            description = row[parseInt(profile.descriptionColumn)];
-        }
-
-        // Handle credit/debit columns or single amount column
-        if (profile.creditColumn && profile.debitColumn) {
-            const credit = parseAmount(row[parseInt(profile.creditColumn)]);
-            const debit = parseAmount(row[parseInt(profile.debitColumn)]);
-            amount = credit - debit;
-        } else {
-            const raw = row[parseInt(profile.amountColumn)];
-            if (raw === undefined || raw === null || String(raw).trim() === '') return null;
-            amount = parseAmount(raw);
-        }
-    }
-
-    if (!date) return null;
-
-    return {
-        import_id: importId,
-        date: normalizeDate(date, dateFormat || profile.dateFormat),
-        description: description || '',
-        amount: amount,
-        category: categorizeTransaction(description)
-    };
 }
 
 async function toggleIgnore(transactionId, ignoredValue) {

@@ -462,6 +462,26 @@ function editCommitment(c) {
     document.getElementById('plannerDesc').focus();
 }
 
+// Look up a full commitment row by id and open the editor. Used by the
+// day-detail buttons, which only carry the commitment id.
+function openEditCommitment(id) {
+    const r = dbHelpers.queryFirst(`
+        SELECT id, description, amount, type, active_months, payment_dates,
+               notes, category_id, subcategory_id
+        FROM expense_commitments WHERE id = ?
+    `, [id]);
+    if (!r) {
+        showMessage('error', 'Commitment not found');
+        return;
+    }
+    closePlannerDayDetail();
+    editCommitment({
+        id: r[0], description: r[1], amount: r[2], type: r[3],
+        active_months: r[4], payment_dates: r[5], notes: r[6],
+        category_id: r[7], subcategory_id: r[8]
+    });
+}
+
 function togglePlannerTypeFields() {
     const type = document.getElementById('plannerType').value;
     document.getElementById('plannerMonthsField').style.display = type === 'monthly'    ? '' : 'none';

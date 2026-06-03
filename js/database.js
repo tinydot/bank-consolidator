@@ -15,6 +15,7 @@ async function init() {
     await loadPlanner();
     populateTemplateAccountSelect();
     setupEventListeners();
+    driveSyncInit();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

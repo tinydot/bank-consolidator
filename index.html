@@ -572,17 +572,56 @@
                     </div>
                 </div>
 
-                <!-- Data Management -->
+                <!-- Backup & Sync -->
                 <div class="settings-section collapsed">
                     <button type="button" class="settings-section-header" onclick="toggleSettingsSection(this)">
-                        <span>💾 Data Management</span>
+                        <span>💾 Backup &amp; Sync</span>
                         <span class="settings-section-chevron">▾</span>
                     </button>
                     <div class="settings-section-body">
-                        <p class="settings-hint">Download a backup of your database, import a previously exported one, or permanently clear all data stored in this browser.</p>
-                        <div class="button-group" style="margin-top: 0;">
+                        <p class="settings-hint">Sync your database to Google Drive, keep an offline file backup, or permanently clear all data stored in this browser.</p>
+
+                        <!-- Google Drive -->
+                        <h4 class="data-group-title">☁️ Google Drive</h4>
+                        <div id="driveSetup">
+                            <div class="form-group">
+                                <label for="driveClientId">Google OAuth Client ID</label>
+                                <input type="text" id="driveClientId" placeholder="xxxxxx.apps.googleusercontent.com" autocomplete="off" spellcheck="false">
+                            </div>
+                            <p class="settings-hint" style="margin-top:6px;">
+                                Create a free OAuth client (type “Web application”) in the
+                                <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Console</a>,
+                                enable the Drive API, and add this site’s URL to “Authorized JavaScript origins”. The ID is stored only in this browser.
+                            </p>
+                        </div>
+                        <div id="driveDisconnected">
+                            <button class="secondary-btn" id="driveConnectBtn" onclick="driveConnect()">🔗 Connect Google Drive</button>
+                        </div>
+                        <div id="driveConnected" style="display:none;">
+                            <p class="drive-status" id="driveAccountLine"></p>
+                            <p class="drive-conflict" id="driveConflictLine" style="display:none;"></p>
+                            <div class="button-group" style="margin-top:10px;">
+                                <button class="secondary-btn" onclick="driveBackup()">⬆️ Back up to Drive</button>
+                                <button class="secondary-btn" onclick="driveRestore()">⬇️ Restore from Drive</button>
+                                <button onclick="driveDisconnect()">Disconnect</button>
+                            </div>
+                        </div>
+                        <p class="drive-status" id="driveFileOnlyHint" style="display:none;"></p>
+
+                        <hr class="data-divider">
+
+                        <!-- Local file -->
+                        <h4 class="data-group-title">📁 Local file</h4>
+                        <div class="button-group" style="margin-top:0;">
                             <button class="secondary-btn" onclick="downloadDatabase()">💾 Download Database</button>
                             <button class="secondary-btn" onclick="importDatabase()">📂 Import Database</button>
+                        </div>
+
+                        <hr class="data-divider">
+
+                        <!-- Danger zone -->
+                        <h4 class="data-group-title">⚠️ Danger zone</h4>
+                        <div class="button-group" style="margin-top:0;">
                             <button class="danger-btn" onclick="clearDatabase()">🗑️ Clear All Data</button>
                         </div>
                     </div>
@@ -604,5 +643,6 @@
     <script src="js/rules.js"></script>
     <script src="js/budget.js"></script>
     <script src="js/planner.js"></script>
+    <script src="js/drive-sync.js"></script>
 </body>
 </html>

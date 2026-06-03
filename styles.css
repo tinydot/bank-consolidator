@@ -478,3 +478,32 @@ tr:hover {
     margin-bottom: 15px;
 }
 
+.data-group-title {
+    margin: 0 0 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.data-divider {
+    border: none;
+    border-top: 1px solid #ecf0f1;
+    margin: 20px 0;
+}
+
+.drive-status {
+    color: #7f8c8d;
+    font-size: 13px;
+    margin: 0;
+}
+
+.drive-conflict {
+    color: #8a6d3b;
+    background: #fcf3cf;
+    border-left: 4px solid #f1c40f;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin: 10px 0 0;
+}
+

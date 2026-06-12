@@ -21,6 +21,12 @@ const DRIVE_FILE_NAME = 'bank_statements.db';
 const DRIVE_MIME = 'application/x-sqlite3';
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
 
+// Built-in OAuth Client ID so end users can connect without any Google Cloud
+// setup. Client IDs are not secrets; abuse is prevented by the "Authorized
+// JavaScript origins" whitelist on the OAuth client. Power users can override
+// this with their own ID via the Advanced field in Settings (stored locally).
+const DEFAULT_CLIENT_ID = '519641800486-cmfn2q8po3ihqdmov00h77tir2tmq7f8.apps.googleusercontent.com';
+
 // localStorage keys
 const DS_CLIENT_ID = 'driveSync_clientId';
 const DS_ACCOUNT = 'driveSync_account';
@@ -41,8 +47,14 @@ function driveIsFileProtocol() {
     return location.protocol === 'file:';
 }
 
-function driveClientId() {
+// The user's own override, if they set one (Advanced field).
+function driveStoredClientId() {
     return (localStorage.getItem(DS_CLIENT_ID) || '').trim();
+}
+
+// Effective Client ID: user override if present, otherwise the built-in default.
+function driveClientId() {
+    return driveStoredClientId() || DEFAULT_CLIENT_ID;
 }
 
 function driveIsConnected() {
@@ -191,13 +203,14 @@ async function driveResolveFile() {
 
 async function driveConnect() {
     if (driveIsFileProtocol()) return;
+    // Optional Advanced override — only persist it if the user typed one.
     const input = document.getElementById('driveClientId');
     if (input) {
         const val = input.value.trim();
-        if (!val) { showMessage('error', 'Enter your Google OAuth Client ID first.'); return; }
-        localStorage.setItem(DS_CLIENT_ID, val);
+        if (val) localStorage.setItem(DS_CLIENT_ID, val);
+        else localStorage.removeItem(DS_CLIENT_ID);
     }
-    if (!driveClientId()) { showMessage('error', 'Enter your Google OAuth Client ID first.'); return; }
+    if (!driveClientId()) { showMessage('error', 'No Google OAuth Client ID configured.'); return; }
 
     try {
         await driveEnsureToken(true); // interactive consent
@@ -338,8 +351,9 @@ function driveRenderState() {
     }
     fileHint.style.display = 'none';
 
+    // Only reflect the user's own override here — never the built-in default.
     const cidInput = document.getElementById('driveClientId');
-    if (cidInput && !cidInput.value) cidInput.value = driveClientId();
+    if (cidInput && !cidInput.value) cidInput.value = driveStoredClientId();
 
     if (driveIsConnected()) {
         setup.style.display = 'none';

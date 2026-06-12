@@ -584,15 +584,23 @@
                         <!-- Google Drive -->
                         <h4 class="data-group-title">☁️ Google Drive</h4>
                         <div id="driveSetup">
-                            <div class="form-group">
-                                <label for="driveClientId">Google OAuth Client ID</label>
-                                <input type="text" id="driveClientId" placeholder="xxxxxx.apps.googleusercontent.com" autocomplete="off" spellcheck="false">
-                            </div>
-                            <p class="settings-hint" style="margin-top:6px;">
-                                Create a free OAuth client (type “Web application”) in the
-                                <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Console</a>,
-                                enable the Drive API, and add this site’s URL to “Authorized JavaScript origins”. The ID is stored only in this browser.
+                            <p class="settings-hint" style="margin-top:0;">
+                                Back up a private copy of your data to your own Google Drive. The app
+                                only ever sees the file it creates — nothing else in your Drive.
                             </p>
+                            <details class="drive-advanced">
+                                <summary>Advanced: use your own Google OAuth Client ID</summary>
+                                <div class="form-group" style="margin-top:10px;">
+                                    <label for="driveClientId">Google OAuth Client ID</label>
+                                    <input type="text" id="driveClientId" placeholder="leave blank to use the built-in default" autocomplete="off" spellcheck="false">
+                                </div>
+                                <p class="settings-hint" style="margin-top:6px;">
+                                    Optional — leave blank for the built-in default. Provide your own only if you’ve
+                                    created an OAuth client (type “Web application”) in the
+                                    <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Console</a>
+                                    and want backups to go through your project. Stored only in this browser.
+                                </p>
+                            </details>
                         </div>
                         <div id="driveDisconnected">
                             <button class="secondary-btn" id="driveConnectBtn" onclick="driveConnect()">🔗 Connect Google Drive</button>

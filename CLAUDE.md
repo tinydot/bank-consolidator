@@ -33,7 +33,7 @@ Script load order (fixed; do not reorder without checking call sites):
 
 ```
 core → database → import → dates → transactions → analytics
-     → categories → bank-profiles → rules → budget → planner
+     → categories → bank-profiles → rules → budget → planner → drive-sync
 ```
 
 To bundle into a single offline HTML file, inline the 3 CDN libs, `styles.css`,
@@ -106,11 +106,22 @@ History tab.
 Do **not** add automatic deduplication (hash-based or otherwise) without
 explicit user request.
 
-### No server-side / cross-device data storage
+### No server-side / cross-device data storage (with one opt-in exception)
 The app is **client-side only** (IndexedDB + localStorage). Server-side
-storage (Firebase, Supabase, Cloudflare D1, etc.) was considered and rejected.
-Do **not** add authentication, cloud sync, or any backend integration without
-explicit user request.
+storage we operate (Firebase, Supabase, Cloudflare D1, etc.) was considered and
+rejected. Do **not** add authentication, a backend, or automatic cloud sync
+without explicit user request.
+
+The sole exception is the **optional, manual Google Drive backup** in
+`js/drive-sync.js` (added at the user's request). There is no backend we run:
+it uses Google Identity Services (token model) + the minimal `drive.file` scope
+to push/pull the single exported DB blob to a file the user owns. It is
+entirely user-initiated (Connect / Back up / Restore buttons), the OAuth Client
+ID is user-supplied and stored only in localStorage, and the access token lives
+in memory only (never persisted). Google OAuth refuses `file://` origins, so the
+Drive panel hides itself there and the local Download/Import .db buttons remain
+the offline-first fallback. Do **not** turn this into automatic/background sync
+without explicit user request.
 
 ## Known tech debt
 

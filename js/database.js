@@ -13,7 +13,7 @@ async function init() {
     await updateAnalytics();
     await loadBudget();
     await loadPlanner();
-    populateTemplateAccountSelect();
+    populateManualAccountSelect();
     setupEventListeners();
     driveSyncInit();
 }

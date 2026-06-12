@@ -59,24 +59,36 @@ and `npx serve`.
   file, re-import one, or push/pull a copy to your own Google Drive. (Individual
   views can still be exported as CSV from the Analytics tab.)
 
-### Google Drive sync setup
+### Google Drive sync
 
 The Drive backup is optional and entirely user-initiated. Because Google OAuth
 does not allow `file://` origins, it only works when the app is served over
-HTTPS (e.g. GitHub Pages) or from `http://localhost`. One-time setup:
+HTTPS (e.g. GitHub Pages) or from `http://localhost`.
+
+**For end users:** nothing to set up. Open Settings → Backup &amp; Sync →
+Google Drive, click **Connect Google Drive**, and grant access. Your data is
+backed up to *your own* Drive; the app uses the minimal `drive.file` scope so it
+can see *only* the `bank_statements.db` it creates (inside a `BankConsolidator`
+folder) — nothing else in your Drive. The access token is held in memory only
+and is never persisted.
+
+**Hosting your own copy?** A built-in OAuth Client ID ships in
+`js/drive-sync.js` (`DEFAULT_CLIENT_ID`). Client IDs are not secrets — access is
+restricted by the OAuth client's **Authorized JavaScript origins** whitelist. If
+you fork and deploy to a different origin, create your own OAuth client:
 
 1. In the [Google Cloud Console](https://console.cloud.google.com/), create a
    project and enable the **Google Drive API**.
 2. Create an **OAuth client ID** of type **Web application**, and add your
    site's URL (e.g. your GitHub Pages origin, or `http://localhost:8080`) under
    **Authorized JavaScript origins**.
-3. Paste the resulting Client ID into Settings → Backup &amp; Sync → Google
-   Drive, then click **Connect Google Drive**.
+3. Either replace `DEFAULT_CLIENT_ID` in `js/drive-sync.js`, or paste the ID
+   into Settings → Backup &amp; Sync → Google Drive → *Advanced* (stored only in
+   that browser).
 
-The app requests only the `drive.file` scope, so it can see *only* the backup
-file it creates (a `bank_statements.db` inside a `BankConsolidator` folder). The
-Client ID is stored only in your browser's localStorage, and the access token is
-held in memory only (never persisted).
+Because `drive.file` is a **non-sensitive** scope, the OAuth consent screen can
+be published to production for any Google user without going through Google's
+app-verification process.
 
 ## Project layout
 

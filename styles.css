@@ -507,3 +507,18 @@ tr:hover {
     margin: 10px 0 0;
 }
 
+.drive-advanced {
+    margin-bottom: 12px;
+}
+
+.drive-advanced > summary {
+    cursor: pointer;
+    color: #2980b9;
+    font-size: 13px;
+    list-style: revert;
+}
+
+.drive-advanced > summary:hover {
+    text-decoration: underline;
+}
+

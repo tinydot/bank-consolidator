@@ -425,7 +425,7 @@ function switchTab(tab) {
     }
 
     if (tab === 'transactions') {
-        populateTemplateAccountSelect();
+        populateManualAccountSelect();
     }
 }
 

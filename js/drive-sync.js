@@ -372,9 +372,11 @@ function driveRenderState() {
 }
 
 function driveSyncInit() {
+    // Only render the panel's connected/disconnected state on load. We do NOT
+    // run a conflict check here: the access token is in-memory only and never
+    // survives a reload, so any Drive API call at startup would force an
+    // interactive Google sign-in popup even though the user didn't ask for one.
+    // Backup, Restore and the post-connect conflict check are all user-initiated
+    // and acquire a token at that point instead.
     driveRenderState();
-    // Best-effort silent conflict check if we appear connected.
-    if (!driveIsFileProtocol() && driveIsConnected()) {
-        driveCheckConflict();
-    }
 }

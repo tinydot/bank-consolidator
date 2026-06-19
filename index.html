@@ -43,7 +43,6 @@
             <!-- TRANSACTIONS TAB -->
             <div id="transactions-tab" class="tab-content active">
                 <div id="import-bar">
-                    <div id="import-message"></div>
                     <label for="fileInput" class="compact-drop-zone" id="dropZone">
                         <span class="compact-drop-icon">📁</span>
                         <span>Drop CSV here or click to import</span>
@@ -236,7 +235,7 @@
                             </select>
                         </div>
                         <div class="form-group" style="margin:0;">
-                            <label>Subcategory <span style="color:#95a5a6; font-weight:400;">(optional)</span></label>
+                            <label>Subcategory <span style="color:#6c7a89; font-weight:400;">(optional)</span></label>
                             <select id="plannerSubcategory">
                                 <option value="">— None —</option>
                             </select>
@@ -251,15 +250,15 @@
                             </select>
                         </div>
                         <div class="form-group" id="plannerMonthsField" style="margin:0;">
-                            <label>Active months <span style="color:#95a5a6; font-weight:400;">(leave blank = all 12)</span></label>
+                            <label>Active months <span style="color:#6c7a89; font-weight:400;">(leave blank = all 12)</span></label>
                             <input type="text" id="plannerActiveMonths" placeholder="e.g. 1,2,3 or leave blank">
                         </div>
                         <div class="form-group" id="plannerDatesField" style="display:none; grid-column:1/-1; margin:0;">
-                            <label>Payment dates <span style="color:#95a5a6; font-weight:400;">(YYYY-MM-DD, comma-separated)</span></label>
+                            <label>Payment dates <span style="color:#6c7a89; font-weight:400;">(YYYY-MM-DD, comma-separated)</span></label>
                             <input type="text" id="plannerDates" placeholder="e.g. 2026-03-01, 2026-06-01, 2026-09-01">
                         </div>
                         <div class="form-group" style="grid-column:1/-1; margin:0;">
-                            <label>Notes <span style="color:#95a5a6; font-weight:400;">(optional)</span></label>
+                            <label>Notes <span style="color:#6c7a89; font-weight:400;">(optional)</span></label>
                             <input type="text" id="plannerNotes" placeholder="e.g. Due on 1st of month">
                         </div>
                     </div>
@@ -356,7 +355,7 @@
                             </div>
                         </div>
                         <div class="form-group" style="margin:0 0 12px;">
-                            <label>Notes <span style="color:#95a5a6; font-weight:400;">(optional)</span></label>
+                            <label>Notes <span style="color:#6c7a89; font-weight:400;">(optional)</span></label>
                             <input type="text" id="activityNotes" placeholder="e.g. Weekend trip, Summer vacation">
                         </div>
                         <div style="background:#f8f9fa; border-radius:6px; padding:12px; margin-bottom:12px;">
@@ -508,7 +507,7 @@
                             <strong>💡 How it works:</strong> Rules automatically process transactions during import:
                             <ul style="margin: 10px 0 0 20px;">
                                 <li><strong>Auto-Ignore:</strong> Mark matching transactions as ignored</li>
-                                <li><strong>Auto-Categorize:</strong> Assign category to matching transactions (coming soon)</li>
+                                <li><strong>Auto-Categorize:</strong> Assign a category to matching transactions</li>
                             </ul>
                         </div>
 

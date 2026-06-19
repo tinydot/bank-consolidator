@@ -438,14 +438,22 @@ function cancelUpload() {
 }
 
 function showMessage(type, text) {
-    const container = document.getElementById('import-message');
+    // Render into a fixed, tab-independent toast layer. Previously this wrote
+    // into #import-message inside the Transactions tab, so feedback from actions
+    // on Settings/Budget/Planner was rendered in a hidden tab and never seen.
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
     const className = type === 'error' ? 'error-message' : 'success-message';
     const div = document.createElement('div');
     div.className = className;
     div.textContent = text;
-    container.innerHTML = '';
     container.appendChild(div);
-    setTimeout(() => container.innerHTML = '', 5000);
+    setTimeout(() => div.remove(), 5000);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

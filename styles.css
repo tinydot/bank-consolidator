@@ -89,6 +89,15 @@ h1 {
     .tab-content {
         padding: 16px !important;
     }
+    /* Let wide data tables scroll horizontally instead of overflowing the
+       viewport (primary target is iPhone Safari). */
+    .tab-content table,
+    .modal-body table {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+    }
 }
 
 .tab-content {
@@ -195,6 +204,11 @@ input, select {
     font-size: 14px;
 }
 
+::placeholder {
+    color: #6c7a89;
+    opacity: 1;
+}
+
 input[type="checkbox"] {
     width: auto;
     padding: 0;
@@ -225,11 +239,12 @@ button:disabled {
 }
 
 .secondary-btn {
-    background: #95a5a6;
+    background: #e9eef2;
+    color: #2c3e50;
 }
 
 .secondary-btn:hover {
-    background: #7f8c8d;
+    background: #d8e0e6;
 }
 
 .danger-btn {
@@ -280,6 +295,35 @@ tr:hover {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 15px;
+}
+
+/* Fixed toast layer — visible regardless of which tab is active */
+.toast-container {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
+    width: 100%;
+    max-width: 480px;
+    padding: 0 16px;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.toast-container .success-message,
+.toast-container .error-message {
+    margin: 0;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    pointer-events: auto;
+    animation: toastIn 0.2s ease;
+}
+
+@keyframes toastIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 .success-message {

@@ -371,7 +371,7 @@ function displayTransactions(result, totalCount = 0, page = 0) {
 
         // Combine category + subcategory
         const categoryDisplay = categoryName === '-'
-            ? '<span style="color:#95a5a6;">Uncategorized</span>'
+            ? '<span style="color:#6c7a89;">Uncategorized</span>'
             : (subcatName && subcatName !== '-'
                 ? `${escapeHtml(categoryName)} › ${escapeHtml(subcatName)}`
                 : escapeHtml(categoryName));

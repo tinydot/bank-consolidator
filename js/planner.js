@@ -76,16 +76,72 @@ function commitmentAmountForMonth(commitment, year, month) {
         return commitment.amount * countNonWorkdaysInMonth(year, month);
     }
 
+    if (commitment.type === 'interval') {
+        // Recurs every `interval_months` months from `anchor_date` (the first
+        // due date, YYYY-MM-DD). Models lumpy, fixed-cadence costs that don't
+        // fit a flat monthly budget — e.g. aircon servicing every 3 months,
+        // dental scaling every 6. Returns the amount only in months that land
+        // on the cadence, and never before the anchor.
+        const n = parseInt(commitment.interval_months, 10);
+        if (!n || n < 1 || !commitment.anchor_date) return 0;
+        const [ay, am] = commitment.anchor_date.split('-').map(Number);
+        if (!ay || !am) return 0;
+        const monthsDiff = (year - ay) * 12 + (month - am);
+        if (monthsDiff < 0) return 0;
+        return monthsDiff % n === 0 ? commitment.amount : 0;
+    }
+
     return 0;
+}
+
+// ── Emergency-fund basis (shared by Planner table, Financial Health, Overview,
+//    and the exported report so every screen agrees) ──────────────────────────
+
+// Sum of every per-category monthly budget limit, in cents. This is the steady
+// monthly run-rate the emergency fund is built on; the Budget tab is its single
+// source of truth (it replaces the old manually-typed "variable spend" figure).
+function budgetMonthlyTotal() {
+    const v = dbHelpers.queryValue(`SELECT COALESCE(SUM(monthly_limit), 0) FROM budget`);
+    return v ? (parseInt(v, 10) || 0) : 0;
+}
+
+// Enabled commitments as plain objects, with every field commitmentAmountForMonth
+// needs. Used by the fund-total helper below.
+function enabledCommitments() {
+    return dbHelpers.queryAll(`
+        SELECT amount, type, day_of_month, payment_dates, active_months,
+               interval_months, anchor_date, enabled
+        FROM expense_commitments WHERE enabled = 1
+    `).map(r => ({
+        amount: r[0], type: r[1], day_of_month: r[2], payment_dates: r[3],
+        active_months: r[4], interval_months: r[5], anchor_date: r[6], enabled: r[7]
+    }));
+}
+
+// Emergency-fund target, in cents: the expected spend over the next 6 months.
+// Each month contributes the budget run-rate plus every Planner commitment that
+// actually lands in it (monthly, term-dated, every-N-months interval, and
+// per-work/non-work-day). The lumpy commitments are exactly what make this more
+// accurate than a flat "monthly figure × 6".
+function emergencyFundTargetTotal() {
+    const base = budgetMonthlyTotal();
+    const commitments = enabledCommitments();
+    let total = 0;
+    plannerMonths().forEach(m => {
+        total += base;
+        commitments.forEach(c => { total += commitmentAmountForMonth(c, m.year, m.month); });
+    });
+    return total;
 }
 
 // ── Load & render ─────────────────────────────────────────────────────────
 
 async function loadPlanner() {
-    const varRow = dbHelpers.queryAll(`SELECT value FROM planner_settings WHERE key = 'variable_spend'`);
-    const variableSpend = varRow.length ? parseFloat(varRow[0][0]) : 0;
-    const varInput = document.getElementById('plannerVariableSpend');
-    if (varInput) varInput.value = variableSpend ? fromCents(variableSpend).toFixed(2) : '';
+    // Baseline monthly spend comes from the Budget tab (sum of category limits),
+    // not a separate manual field — see budgetMonthlyTotal().
+    const budgetBaseline = budgetMonthlyTotal();
+    const baselineDisplay = document.getElementById('plannerBudgetBaseline');
+    if (baselineDisplay) baselineDisplay.textContent = `S$${fmtMoney(budgetBaseline)}`;
 
     // Load commitments joined to category/subcategory names+colors
     const rows = dbHelpers.queryAll(`
@@ -94,7 +150,8 @@ async function loadPlanner() {
                ec.notes, ec.enabled,
                ec.category_id, ec.subcategory_id,
                c.name  AS cat_name,  c.icon AS cat_icon, c.color AS cat_color,
-               sc.name AS subcat_name
+               sc.name AS subcat_name,
+               ec.interval_months, ec.anchor_date
         FROM expense_commitments ec
         LEFT JOIN categories   c  ON ec.category_id    = c.id
         LEFT JOIN subcategories sc ON ec.subcategory_id = sc.id
@@ -107,10 +164,11 @@ async function loadPlanner() {
         notes: r[7], enabled: r[8],
         category_id: r[9], subcategory_id: r[10],
         cat_name: r[11] || 'Uncategorised', cat_icon: r[12] || '📦',
-        cat_color: r[13] || '#95a5a6', subcat_name: r[14]
+        cat_color: r[13] || '#95a5a6', subcat_name: r[14],
+        interval_months: r[15], anchor_date: r[16]
     }));
 
-    renderPlannerTable(commitments, variableSpend);
+    renderPlannerTable(commitments, budgetBaseline);
     loadFinancialHealth();
     loadActivities();
     if (monthViewYear) renderMonthView();
@@ -204,11 +262,14 @@ function renderPlannerTable(commitments, variableSpend) {
             term:       '<span style="font-size:10px; background:#9b59b620; color:#9b59b6;  padding:1px 5px; border-radius:3px; margin-left:4px;">term</span>',
             workday:    '<span style="font-size:10px; background:#16a08520; color:#16a085;  padding:1px 5px; border-radius:3px; margin-left:4px;">workday</span>',
             nonworkday: '<span style="font-size:10px; background:#d3540020; color:#d35400;  padding:1px 5px; border-radius:3px; margin-left:4px;">weekend</span>',
+            interval:   '<span style="font-size:10px; background:#2980b920; color:#2980b9;  padding:1px 5px; border-radius:3px; margin-left:4px;">interval</span>',
         };
         const typeTag = typeTags[c.type] || '';
         const perDayHint = (c.type === 'workday' || c.type === 'nonworkday')
             ? `<div style="font-size:11px; color:#95a5a6;">S$${fmtMoney(c.amount)} / day</div>`
-            : '';
+            : (c.type === 'interval' && c.interval_months)
+                ? `<div style="font-size:11px; color:#95a5a6;">S$${fmtMoney(c.amount)} every ${c.interval_months} month${c.interval_months == 1 ? '' : 's'}${c.anchor_date ? `, from ${escapeHtml(c.anchor_date)}` : ''}</div>`
+                : '';
         tdName.innerHTML = `
             <div style="font-weight:500; font-size:13px;">${escapeHtml(c.description)}${typeTag}</div>
             ${perDayHint}
@@ -332,7 +393,9 @@ function renderPlannerTable(commitments, variableSpend) {
         wrap.appendChild(section);
     });
 
-    // ── Variable spend row (always visible) ───────────────────────────────
+    // ── Budget baseline row (always visible) ───────────────────────────────
+    // variableSpend here is the budget baseline (sum of Budget-tab category
+    // limits) — the steady monthly run-rate the commitments below refine.
     if (variableSpend > 0) {
         const varSection = document.createElement('div');
         varSection.style.cssText = 'margin-bottom:10px; border-radius:8px; overflow:hidden; border:1px solid #f39c1230;';
@@ -345,8 +408,8 @@ function renderPlannerTable(commitments, variableSpend) {
         tdName.innerHTML = `<div style="display:flex; align-items:center; gap:8px;">
             <span style="font-size:16px;">🛒</span>
             <div>
-                <div style="font-weight:600; font-size:13px;">Variable spend estimate</div>
-                <div style="font-size:11px; color:#95a5a6;">Food, transport &amp; other essentials</div>
+                <div style="font-weight:600; font-size:13px;">Monthly budget baseline</div>
+                <div style="font-size:11px; color:#95a5a6;">Sum of your Budget-tab category limits</div>
             </div>
         </div>`;
         tr.appendChild(tdName);
@@ -401,7 +464,7 @@ function renderPlannerTable(commitments, variableSpend) {
     card3mo.innerHTML = `
         <div>
             <div style="font-size:13px; color:#7f8c8d; text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px;">3-Month Emergency Fund Target</div>
-            <div style="font-size:13px; color:#95a5a6;">Fixed commitments + variable spend over 3 months</div>
+            <div style="font-size:13px; color:#95a5a6;">Budget baseline + recurring commitments over 3 months</div>
         </div>
         <div style="text-align:right;">
             <div style="font-size:32px; font-weight:800; color:#3498db;">S$${fmtMoneyLocale(grandTotal3mo, 'en-SG')}</div>
@@ -414,7 +477,7 @@ function renderPlannerTable(commitments, variableSpend) {
     card6mo.innerHTML = `
         <div>
             <div style="font-size:13px; color:#7f8c8d; text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px;">6-Month Emergency Fund Target</div>
-            <div style="font-size:13px; color:#95a5a6;">Fixed commitments + variable spend over 6 months</div>
+            <div style="font-size:13px; color:#95a5a6;">Budget baseline + recurring commitments over 6 months</div>
         </div>
         <div style="text-align:right;">
             <div style="font-size:32px; font-weight:800; color:#27ae60;">S$${fmtMoneyLocale(grandTotal6mo, 'en-SG')}</div>
@@ -440,6 +503,8 @@ function showAddCommitmentForm() {
     document.getElementById('plannerType').value = 'monthly';
     document.getElementById('plannerActiveMonths').value = '';
     document.getElementById('plannerDates').value = '';
+    document.getElementById('plannerIntervalMonths').value = '';
+    document.getElementById('plannerAnchorDate').value = '';
     document.getElementById('plannerNotes').value = '';
     populatePlannerCategoryDropdown(null, null);
     togglePlannerTypeFields();
@@ -455,6 +520,8 @@ function editCommitment(c) {
     document.getElementById('plannerType').value = c.type;
     document.getElementById('plannerActiveMonths').value = c.active_months || '';
     document.getElementById('plannerDates').value = c.payment_dates || '';
+    document.getElementById('plannerIntervalMonths').value = c.interval_months || '';
+    document.getElementById('plannerAnchorDate').value = c.anchor_date || '';
     document.getElementById('plannerNotes').value = c.notes || '';
     populatePlannerCategoryDropdown(c.category_id, c.subcategory_id);
     togglePlannerTypeFields();
@@ -467,7 +534,7 @@ function editCommitment(c) {
 function openEditCommitment(id) {
     const r = dbHelpers.queryFirst(`
         SELECT id, description, amount, type, active_months, payment_dates,
-               notes, category_id, subcategory_id
+               notes, category_id, subcategory_id, interval_months, anchor_date
         FROM expense_commitments WHERE id = ?
     `, [id]);
     if (!r) {
@@ -478,17 +545,20 @@ function openEditCommitment(id) {
     editCommitment({
         id: r[0], description: r[1], amount: r[2], type: r[3],
         active_months: r[4], payment_dates: r[5], notes: r[6],
-        category_id: r[7], subcategory_id: r[8]
+        category_id: r[7], subcategory_id: r[8],
+        interval_months: r[9], anchor_date: r[10]
     });
 }
 
 function togglePlannerTypeFields() {
     const type = document.getElementById('plannerType').value;
-    document.getElementById('plannerMonthsField').style.display = type === 'monthly'    ? '' : 'none';
-    document.getElementById('plannerDatesField').style.display  = type === 'term'       ? '' : 'none';
+    document.getElementById('plannerMonthsField').style.display   = type === 'monthly'  ? '' : 'none';
+    document.getElementById('plannerDatesField').style.display    = type === 'term'      ? '' : 'none';
+    document.getElementById('plannerIntervalField').style.display = type === 'interval'  ? '' : 'none';
     const amtLabels = {
         monthly:    'Amount (SGD)',
         term:       'Amount (SGD)',
+        interval:   'Amount per occurrence (SGD)',
         workday:    'Daily amount (SGD / workday)',
         nonworkday: 'Daily amount (SGD / non-workday)',
     };
@@ -552,6 +622,21 @@ async function saveCommitment() {
     const categoryId   = catVal    ? parseInt(catVal)    : null;
     const subcategoryId = subcatVal ? parseInt(subcatVal) : null;
 
+    let intervalMonths = null, anchorDate = null;
+    if (type === 'interval') {
+        const rawInterval = document.getElementById('plannerIntervalMonths').value.trim();
+        anchorDate = document.getElementById('plannerAnchorDate').value.trim() || null;
+        intervalMonths = rawInterval ? parseInt(rawInterval, 10) : null;
+        if (!intervalMonths || intervalMonths < 1) {
+            showMessage('error', 'Enter how many months between occurrences (1 or more)');
+            return;
+        }
+        if (!anchorDate || !/^\d{4}-\d{2}-\d{2}$/.test(anchorDate)) {
+            showMessage('error', 'Enter the first due date as YYYY-MM-DD');
+            return;
+        }
+    }
+
     if (!desc) { showMessage('error', 'Description is required'); return; }
     if (!amount || amount <= 0) { showMessage('error', 'Enter a valid amount'); return; }
     if (type === 'term' && !dates) { showMessage('error', 'Enter at least one payment date'); return; }
@@ -568,15 +653,15 @@ async function saveCommitment() {
         dbHelpers.safeRun(`
             UPDATE expense_commitments
             SET description=?, amount=?, type=?, category_id=?, subcategory_id=?,
-                active_months=?, payment_dates=?, notes=?
+                active_months=?, payment_dates=?, interval_months=?, anchor_date=?, notes=?
             WHERE id=?
-        `, [desc, amount, type, categoryId, subcategoryId, activeMonths, dates, notes, id], 'Update commitment');
+        `, [desc, amount, type, categoryId, subcategoryId, activeMonths, dates, intervalMonths, anchorDate, notes, id], 'Update commitment');
     } else {
         dbHelpers.safeRun(`
             INSERT INTO expense_commitments
-                (description, amount, type, category_id, subcategory_id, active_months, payment_dates, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `, [desc, amount, type, categoryId, subcategoryId, activeMonths, dates, notes], 'Add commitment');
+                (description, amount, type, category_id, subcategory_id, active_months, payment_dates, interval_months, anchor_date, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [desc, amount, type, categoryId, subcategoryId, activeMonths, dates, intervalMonths, anchorDate, notes], 'Add commitment');
     }
 
     markDirty();
@@ -694,16 +779,12 @@ function loadFinancialHealth() {
     const { total: eligible, count: eligibleCount } = emergencyEligibleTotal();
     const nw = netWorthByBucket();
 
-    // Emergency-fund target = 6 × monthly burn (monthly commitments + variable spend).
-    const varRow = dbHelpers.queryAll(`SELECT value FROM planner_settings WHERE key = 'variable_spend'`);
-    const variableSpend = varRow.length ? parseFloat(varRow[0][0]) : 0;
-
-    let monthlyCommitments = 0;
-    dbHelpers.queryAll(`SELECT amount, type FROM expense_commitments WHERE enabled = 1`)
-        .forEach(([amount, type]) => { if (type === 'monthly') monthlyCommitments += amount; });
-
-    const monthlyBurn = monthlyCommitments + variableSpend;
-    const emergencyFundTarget = monthlyBurn * 6;
+    // Emergency-fund target = expected spend over the next 6 months: the budget
+    // baseline every month plus every Planner commitment that lands in those
+    // months (incl. lumpy term/interval/per-day ones). monthlyBurn is the
+    // average of that, used only for the "months covered" read-out.
+    const emergencyFundTarget = emergencyFundTargetTotal();
+    const monthlyBurn = emergencyFundTarget / 6;
 
     // Scheduled activities draw down the spendable (emergency-eligible) pot.
     const scheduledActivities = dbHelpers.queryAll(`
@@ -799,7 +880,7 @@ function loadFinancialHealth() {
             <div>
                 <div style="font-size:11px; color:#7f8c8d; margin-bottom:4px;">6-MONTH TARGET</div>
                 <div style="font-size:24px; font-weight:700; color:#7f8c8d;">$${fmtMoneyLocale(emergencyFundTarget)}</div>
-                <div style="font-size:11px; color:#95a5a6; margin-top:2px;">$${fmtMoney(monthlyBurn)} × 6 months</div>
+                <div style="font-size:11px; color:#95a5a6; margin-top:2px;">budget baseline + commitments · ≈ $${fmtMoney(monthlyBurn)}/mo avg</div>
             </div>
         </div>
         <div style="display:flex; flex-wrap:wrap; gap:14px; padding:10px 12px; background:#f8f9fa; border-radius:6px; margin-bottom:12px;">
@@ -826,7 +907,7 @@ function loadFinancialHealth() {
                 <div style="font-weight:600; font-size:14px; color:${statusColor};">${statusText}</div>
                 <div style="font-size:12px; color:#7f8c8d;">
                     ${monthlyBurn <= 0
-                        ? 'Add commitments / variable spend in the Planner to set your target'
+                        ? 'Set category limits in the Budget tab (and add Planner commitments) to calculate your target'
                         : projectedBalance >= emergencyFundTarget
                             ? 'Your emergency-eligible cash covers the full 6-month target'
                             : projectedBalance >= monthlyBurn * 3
@@ -1354,16 +1435,6 @@ function deleteActivity(id) {
     showMessage('success', 'Activity deleted');
 }
 
-async function savePlannerVariable() {
-    const val = toCents(document.getElementById('plannerVariableSpend').value);
-    dbHelpers.safeRun(`
-        INSERT INTO planner_settings (key, value) VALUES ('variable_spend', ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `, [val], 'Save variable spend');
-    markDirty();
-    await loadPlanner();
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // §16. PLANNER MONTH VIEW
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1431,7 +1502,8 @@ function renderMonthView() {
         SELECT ec.id, ec.description, ec.amount, ec.type,
                ec.day_of_month, ec.payment_dates, ec.active_months,
                ec.notes, ec.enabled,
-               c.name AS cat_name, c.icon AS cat_icon, c.color AS cat_color
+               c.name AS cat_name, c.icon AS cat_icon, c.color AS cat_color,
+               ec.interval_months, ec.anchor_date
         FROM expense_commitments ec
         LEFT JOIN categories c ON ec.category_id = c.id
         WHERE ec.enabled = 1
@@ -1441,7 +1513,8 @@ function renderMonthView() {
         id: r[0], description: r[1], amount: r[2], type: r[3],
         day_of_month: r[4], payment_dates: r[5], active_months: r[6],
         notes: r[7], enabled: r[8],
-        cat_name: r[9] || 'Uncategorised', cat_icon: r[10] || '📦', cat_color: r[11] || '#9b59b6'
+        cat_name: r[9] || 'Uncategorised', cat_icon: r[10] || '📦', cat_color: r[11] || '#9b59b6',
+        interval_months: r[12], anchor_date: r[13]
     }));
 
     // ── Index by day ───────────────────────────────────────────────────────
@@ -1471,6 +1544,16 @@ function renderMonthView() {
         } else if (c.type === 'monthly') {
             if (c.day_of_month) {
                 const day = c.day_of_month;
+                if (!commitmentsByDay[day]) commitmentsByDay[day] = [];
+                commitmentsByDay[day].push(c);
+            } else {
+                monthlyNoDay.push(c);
+            }
+        } else if (c.type === 'interval' && c.anchor_date) {
+            // commitmentAmountForMonth already confirmed this month is on-cadence;
+            // place it on the anchor's day-of-month.
+            const day = parseInt(c.anchor_date.split('-')[2]);
+            if (day) {
                 if (!commitmentsByDay[day]) commitmentsByDay[day] = [];
                 commitmentsByDay[day].push(c);
             } else {
@@ -1639,7 +1722,8 @@ function showPlannerDayDetail(dateStr) {
         SELECT ec.id, ec.description, ec.amount, ec.type,
                ec.day_of_month, ec.payment_dates, ec.active_months,
                ec.notes, ec.enabled,
-               c.name AS cat_name, c.icon AS cat_icon, c.color AS cat_color
+               c.name AS cat_name, c.icon AS cat_icon, c.color AS cat_color,
+               ec.interval_months, ec.anchor_date
         FROM expense_commitments ec
         LEFT JOIN categories c ON ec.category_id = c.id
         WHERE ec.enabled = 1
@@ -1658,12 +1742,15 @@ function showPlannerDayDetail(dateStr) {
             id: r[0], description: r[1], amount: r[2], type: r[3],
             day_of_month: r[4], payment_dates: r[5], active_months: r[6],
             notes: r[7], enabled: r[8],
-            cat_name: r[9] || 'Uncategorised', cat_icon: r[10] || '📦', cat_color: r[11] || '#9b59b6'
+            cat_name: r[9] || 'Uncategorised', cat_icon: r[10] || '📦', cat_color: r[11] || '#9b59b6',
+            interval_months: r[12], anchor_date: r[13]
         };
         if (commitmentAmountForMonth(c, year, month) === 0) return;
         if (c.type === 'term' && c.payment_dates) {
             if (c.payment_dates.split(',').map(d => d.trim()).includes(dateStr)) dayCommitments.push(c);
         } else if (c.type === 'monthly' && c.day_of_month === day) {
+            dayCommitments.push(c);
+        } else if (c.type === 'interval' && c.anchor_date && parseInt(c.anchor_date.split('-')[2]) === day) {
             dayCommitments.push(c);
         } else if (c.type === 'workday' && isWorkdayDate) {
             dayWorkdayItems.push(c);

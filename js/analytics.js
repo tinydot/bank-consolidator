@@ -318,10 +318,10 @@ function renderCategoryDetailTags() {
         const currentMonthNum = today.getMonth() + 1;
         const todayDay = today.getDate();
         const commitRows = dbHelpers.queryAll(
-            `SELECT type, amount, day_of_month, payment_dates, active_months FROM expense_commitments WHERE enabled = 1`
+            `SELECT type, amount, day_of_month, payment_dates, active_months, interval_months, anchor_date FROM expense_commitments WHERE enabled = 1`
         );
         commitRows.forEach(r => {
-            const [type, amount, dayOfMonth, paymentDates, activeMonths] = r;
+            const [type, amount, dayOfMonth, paymentDates, activeMonths, intervalMonths, anchorDate] = r;
             if (type === 'monthly') {
                 if (activeMonths) {
                     const allowed = activeMonths.split(',').map(m => parseInt(m.trim()));
@@ -337,6 +337,13 @@ function renderCategoryDetailTags() {
                         upcomingCommitted += amount;
                     }
                 });
+            } else if (type === 'interval' && anchorDate) {
+                // Counts if this month is on-cadence and the anchor day is still ahead.
+                const due = commitmentAmountForMonth(
+                    { enabled: 1, type, amount, interval_months: intervalMonths, anchor_date: anchorDate },
+                    today.getFullYear(), currentMonthNum);
+                const anchorDay = parseInt(anchorDate.split('-')[2]);
+                if (due > 0 && anchorDay > todayDay) upcomingCommitted += amount;
             }
         });
     }
@@ -946,14 +953,15 @@ function buildReportHTML() {
     const plannerRows = dbHelpers.queryAll(`
         SELECT ec.description, ec.amount, ec.type, ec.payment_dates, ec.active_months,
             COALESCE(c.name,'Uncategorised') as cat, COALESCE(c.icon,'📦') as icon,
-            COALESCE(c.color,'#95a5a6') as color
+            COALESCE(c.color,'#95a5a6') as color,
+            ec.day_of_month, ec.interval_months, ec.anchor_date
         FROM expense_commitments ec
         LEFT JOIN categories c ON ec.category_id=c.id
         WHERE ec.enabled=1
         ORDER BY c.sort_order, c.name, ec.type DESC, ec.description`);
 
-    const varRow = dbHelpers.queryAll(`SELECT value FROM planner_settings WHERE key='variable_spend'`);
-    const variableSpend = varRow.length ? parseFloat(varRow[0][0]) : 0;
+    // Baseline monthly spend now comes from the Budget tab (see budgetMonthlyTotal).
+    const variableSpend = budgetMonthlyTotal();
 
     // ── Build report months list ──────────────────────────────────────────
     const months = plannerMonths(); // reuse existing helper
@@ -1161,26 +1169,19 @@ function rpt_planner(plannerRows, variableSpend, months) {
     // Group by category
     const catMap = {};
     plannerRows.forEach(r => {
-        const [desc, amount, type, payDates, activeMonths, cat, icon, color] = r;
+        const [desc, amount, type, payDates, activeMonths, cat, icon, color, dayOfMonth, intervalMonths, anchorDate] = r;
         if (!catMap[cat]) catMap[cat] = { icon, color, items: [] };
-        catMap[cat].items.push({ desc, amount, type, payDates, activeMonths });
+        // Field names mirror commitmentAmountForMonth's expectations so we can
+        // reuse the app's single source of truth for every commitment type.
+        catMap[cat].items.push({
+            desc, amount, type, enabled: 1,
+            payment_dates: payDates, active_months: activeMonths,
+            day_of_month: dayOfMonth, interval_months: intervalMonths, anchor_date: anchorDate
+        });
     });
 
-    // Compute amounts per item per month (reuse app logic inline)
-    function amtForMonth(item, year, month) {
-        const key = `${year}-${String(month).padStart(2,'0')}`;
-        if (item.type === 'monthly') {
-            if (item.activeMonths) {
-                const allowed = item.activeMonths.split(',').map(m => parseInt(m.trim()));
-                if (!allowed.includes(month)) return 0;
-            }
-            return item.amount;
-        }
-        if (item.type === 'term' && item.payDates) {
-            return item.payDates.split(',').map(d=>d.trim()).some(d=>d.startsWith(key)) ? item.amount : 0;
-        }
-        return 0;
-    }
+    // Reuse the app's per-month logic (handles monthly/term/interval/workday).
+    const amtForMonth = (item, year, month) => commitmentAmountForMonth(item, year, month);
 
     const mHeaders = months.map(m => `<th class="r">${rpt_esc(m.label)}</th>`).join('');
     let grandTotal = 0;
@@ -1199,7 +1200,13 @@ function rpt_planner(plannerRows, variableSpend, months) {
                 grandTotal += amt;
                 return `<td class="r">${amt > 0 ? `<span style="font-weight:600;color:#2c3e50;">${rpt_fmt(amt)}</span>` : '<span style="color:#e0e0e0;">—</span>'}</td>`;
             }).join('');
-            const typeTag = item.type === 'term' ? ' <span style="font-size:10px;background:#9b59b620;color:#9b59b6;padding:1px 5px;border-radius:3px;">term</span>' : '';
+            const typeTagMap = {
+                term:     ' <span style="font-size:10px;background:#9b59b620;color:#9b59b6;padding:1px 5px;border-radius:3px;">term</span>',
+                interval: ' <span style="font-size:10px;background:#2980b920;color:#2980b9;padding:1px 5px;border-radius:3px;">interval</span>',
+                workday:  ' <span style="font-size:10px;background:#16a08520;color:#16a085;padding:1px 5px;border-radius:3px;">workday</span>',
+                nonworkday:' <span style="font-size:10px;background:#d3540020;color:#d35400;padding:1px 5px;border-radius:3px;">weekend</span>',
+            };
+            const typeTag = typeTagMap[item.type] || '';
             const rowTotal = months.reduce((s, m) => s + amtForMonth(item, m.year, m.month), 0);
             return `<tr>
                 <td style="padding-left:24px;">${rpt_esc(item.desc)}${typeTag}</td>
@@ -1234,7 +1241,7 @@ ${itemRows}
 </details>`;
     }).join('');
 
-    // Variable spend row
+    // Budget baseline row
     let varHTML = '';
     if (variableSpend > 0) {
         months.forEach((_, i) => { monthGrandTotals[i] += variableSpend; });
@@ -1245,7 +1252,7 @@ ${itemRows}
         ).join('');
         varHTML = `<table style="margin-bottom:10px;">
 <tbody><tr>
-  <td><span style="margin-right:6px;">🛒</span>Variable spend estimate <span style="font-size:11px;color:#95a5a6;">(food, transport, etc.)</span></td>
+  <td><span style="margin-right:6px;">🛒</span>Monthly budget baseline <span style="font-size:11px;color:#95a5a6;">(sum of Budget-tab limits)</span></td>
   ${varCells}
   <td class="r" style="color:#e67e22;font-weight:700;">${rpt_fmt(varTotal)}</td>
 </tr></tbody></table>`;
@@ -1266,7 +1273,7 @@ ${itemRows}
     const fundCard = `<div class="fund-card">
   <div>
     <div class="fund-label">6-Month Emergency Fund Target</div>
-    <div class="fund-avg">Fixed commitments + variable spend over 6 months</div>
+    <div class="fund-avg">Budget baseline + recurring commitments over 6 months</div>
   </div>
   <div style="text-align:right;">
     <div class="fund-value">${rpt_fmt(grandTotal)}</div>

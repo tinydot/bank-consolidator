@@ -13,17 +13,12 @@
 let overviewSavingsChart = null;
 let overviewBalanceChart = null;
 
-// Monthly burn = enabled monthly commitments + variable spend (mirrors the
-// Planner's Financial Health calc so the two screens agree). All in cents.
+// Average monthly burn = the 6-month emergency-fund target (budget baseline +
+// every Planner commitment that lands in the window) divided by 6. Reuses
+// emergencyFundTargetTotal() from js/planner.js so the Overview, Planner, and
+// report all agree. All in cents.
 function overviewMonthlyBurn() {
-    const varRow = dbHelpers.queryValue(`SELECT value FROM planner_settings WHERE key='variable_spend'`);
-    const variableSpend = varRow ? (parseInt(varRow, 10) || 0) : 0;
-
-    let monthlyCommitments = 0;
-    dbHelpers.queryAll(`SELECT amount FROM expense_commitments WHERE enabled = 1 AND type = 'monthly'`)
-        .forEach(([amount]) => { monthlyCommitments += amount; });
-
-    return monthlyCommitments + variableSpend;
+    return emergencyFundTargetTotal() / 6;
 }
 
 // Balance helpers (accountPurposeMap / emergencyEligibleTotal /
@@ -72,21 +67,22 @@ function renderEmergencyFundProgress() {
     const container = document.getElementById('overviewEmergencyFund');
     if (!container) return;
 
-    const monthlyBurn = overviewMonthlyBurn();
-    const target = monthlyBurn * 6;
+    const target = emergencyFundTargetTotal();
+    const monthlyBurn = target / 6; // average monthly burn over the 6-month window
     const { total: current, count: eligibleCount } = emergencyEligibleTotal();
     const nw = netWorthByBucket();
 
     if (target <= 0) {
         container.innerHTML = `<div style="color:#7f8c8d; font-size:13px;">
-            Set up your fixed commitments and variable spend in the
-            <strong>Planner</strong> tab to calculate your emergency-fund target.</div>`;
+            Set category limits in the <strong>Budget</strong> tab and add any
+            recurring commitments in the <strong>Planner</strong> tab to calculate
+            your emergency-fund target.</div>`;
         return;
     }
     if (eligibleCount === 0) {
         container.innerHTML = `<div style="color:#7f8c8d; font-size:13px;">
             Your 6-month target is <strong>$${fmtMoneyLocale(target)}</strong>
-            ($${fmtMoney(monthlyBurn)}/mo × 6). Record a balance and tick
+            (≈ $${fmtMoney(monthlyBurn)}/mo avg). Record a balance and tick
             <em>"Counts toward emergency fund"</em> via <strong>Update Balance</strong>
             in the Planner tab to track progress.</div>`;
         return;
@@ -142,7 +138,7 @@ function renderEmergencyFundProgress() {
         </div>
         <div style="font-size:11px; color:#95a5a6; margin-top:8px;">
             Emergency-eligible cash across ${eligibleCount} account${eligibleCount === 1 ? '' : 's'} ·
-            target = $${fmtMoney(monthlyBurn)}/mo burn × 6
+            target = budget baseline + Planner commitments over 6 months (≈ $${fmtMoney(monthlyBurn)}/mo avg)
         </div>
         ${(nw.investment > 0 || nw.locked > 0) ? `
         <div style="font-size:11px; color:#95a5a6; margin-top:2px;">

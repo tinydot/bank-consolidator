@@ -747,7 +747,10 @@ function loadFinancialHealth() {
                 <td style="padding:7px 8px; font-size:12px; white-space:nowrap;">${counted}</td>
                 <td style="padding:7px 8px; font-size:13px; font-weight:600; color:#2c3e50; text-align:right; white-space:nowrap;">$${fmtMoneyLocale(d.balance)}</td>
                 <td style="padding:7px 8px; font-size:11px; color:#95a5a6; white-space:nowrap;">${escapeHtml(d.asOf || '')}</td>
-                <td style="padding:7px 8px; text-align:right;"><button data-update-account="${escapeHtml(d.account)}" class="secondary-btn" style="padding:3px 10px; font-size:12px;">Update</button></td>
+                <td style="padding:7px 8px; text-align:right; white-space:nowrap;">
+                    <button data-update-account="${escapeHtml(d.account)}" class="secondary-btn" style="padding:3px 10px; font-size:12px;">Update</button>
+                    <button data-delete-account="${escapeHtml(d.account)}" class="secondary-btn" title="Remove this balance entry" style="padding:3px 8px; font-size:12px; color:#e74c3c;">✕</button>
+                </td>
             </tr>`;
     }).join('');
 
@@ -838,6 +841,22 @@ function loadFinancialHealth() {
     container.querySelectorAll('[data-update-account]').forEach(btn => {
         btn.addEventListener('click', () => quickUpdateBalance(btn.getAttribute('data-update-account')));
     });
+    container.querySelectorAll('[data-delete-account]').forEach(btn => {
+        btn.addEventListener('click', () => deleteBalanceAccount(btn.getAttribute('data-delete-account')));
+    });
+}
+
+// Remove every balance snapshot + classification for an account. Used to clear
+// out a rogue / orphaned row (e.g. an account that was later renamed). Does not
+// touch transactions.
+function deleteBalanceAccount(accountName) {
+    if (!confirm(`Remove all recorded balances for "${accountName}"?\n\nThis only clears the balance entry — your transactions are untouched.`)) return;
+    db.run('DELETE FROM bank_balances WHERE account_name = ?', [accountName]);
+    db.run('DELETE FROM account_purpose WHERE account_name = ?', [accountName]);
+    markDirty();
+    loadFinancialHealth();
+    if (typeof loadOverview === 'function') loadOverview();
+    showMessage('success', 'Balance entry removed');
 }
 
 // Open the Update Balance form pre-selected to a specific account so the user
@@ -845,6 +864,15 @@ function loadFinancialHealth() {
 function quickUpdateBalance(accountName) {
     showUpdateBalanceForm();
     const select = document.getElementById('balanceAccountName');
+    // The dropdown is built from imported accounts; a balance saved for an
+    // account that was since renamed/removed won't be there. Inject it so the
+    // row stays editable instead of leaving the field blank.
+    if (!Array.from(select.options).some(o => o.value === accountName)) {
+        const opt = document.createElement('option');
+        opt.value = accountName;
+        opt.textContent = `${accountName} (not in account list)`;
+        select.appendChild(opt);
+    }
     select.value = accountName;
     onBalanceAccountChange();
     document.getElementById('balanceAmount').value = '';

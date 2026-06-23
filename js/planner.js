@@ -662,6 +662,19 @@ function netWorthByBucket() {
     return out;
 }
 
+// One row per account with its latest manually-entered balance, classification
+// and as-of date — emergency-counted accounts first, then by amount. Used to
+// show exactly how the emergency-fund figure is made up.
+function latestBalanceDetails() {
+    const purpose = accountPurposeMap();
+    const map = {};
+    dbHelpers.queryAll(`SELECT account_name, balance, as_of_date FROM bank_balances ORDER BY updated_at ASC`)
+        .forEach(([account, balance, asOf]) => { map[account] = { account, balance, asOf }; });
+    return Object.values(map)
+        .map(r => ({ ...r, ...purposeFor(purpose, r.account) }))
+        .sort((a, b) => (b.emergency - a.emergency) || (b.balance - a.balance));
+}
+
 function loadFinancialHealth() {
     const container = document.getElementById('balanceDisplay');
     const balances = latestBalancesByAccount();
@@ -713,6 +726,59 @@ function loadFinancialHealth() {
                ${BALANCE_BUCKETS[key].icon} ${BALANCE_BUCKETS[key].label}: <strong>$${fmtMoneyLocale(nw[key])}</strong></span>`
         : '';
 
+    // Per-account breakdown: each amount is exactly what was typed into Update
+    // Balance — nothing is derived from transactions.
+    const details = latestBalanceDetails();
+    const breakdownRows = details.map(d => {
+        const b = BALANCE_BUCKETS[d.bucket];
+        const counted = d.emergency
+            ? '<span style="color:#27ae60; font-weight:600;">✓ counted</span>'
+            : '<span style="color:#b0b8bf;">— excluded</span>';
+        return `
+            <tr style="border-top:1px solid #eef1f4; ${d.emergency ? 'background:#27ae6008;' : ''}">
+                <td style="padding:7px 8px; font-size:13px; color:#2c3e50;">${escapeHtml(d.account)}</td>
+                <td style="padding:7px 8px; font-size:12px; color:#7f8c8d; white-space:nowrap;">${b.icon} ${b.label}</td>
+                <td style="padding:7px 8px; font-size:12px; white-space:nowrap;">${counted}</td>
+                <td style="padding:7px 8px; font-size:13px; font-weight:600; color:#2c3e50; text-align:right; white-space:nowrap;">$${fmtMoneyLocale(d.balance)}</td>
+                <td style="padding:7px 8px; font-size:11px; color:#95a5a6; white-space:nowrap;">${escapeHtml(d.asOf || '')}</td>
+                <td style="padding:7px 8px; text-align:right;"><button data-update-account="${escapeHtml(d.account)}" class="secondary-btn" style="padding:3px 10px; font-size:12px;">Update</button></td>
+            </tr>`;
+    }).join('');
+
+    const breakdownHtml = details.length ? `
+        <details open style="margin-bottom:12px;">
+            <summary style="cursor:pointer; font-size:12px; font-weight:600; color:#2c3e50; margin-bottom:8px;">
+                Emergency-fund breakdown by account
+            </summary>
+            <div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse;">
+                <thead>
+                    <tr style="text-align:left; color:#7f8c8d; font-size:11px; text-transform:uppercase;">
+                        <th style="padding:4px 8px; font-weight:600;">Account</th>
+                        <th style="padding:4px 8px; font-weight:600;">Type</th>
+                        <th style="padding:4px 8px; font-weight:600;">Counts?</th>
+                        <th style="padding:4px 8px; font-weight:600; text-align:right;">Balance</th>
+                        <th style="padding:4px 8px; font-weight:600;">As of</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>${breakdownRows}</tbody>
+                <tfoot>
+                    <tr style="border-top:2px solid #dfe4e8;">
+                        <td colspan="3" style="padding:8px; font-size:12px; font-weight:600; color:#27ae60;">Emergency-fund total (counted)</td>
+                        <td style="padding:8px; font-size:14px; font-weight:700; color:#27ae60; text-align:right;">$${fmtMoneyLocale(eligible)}</td>
+                        <td colspan="2"></td>
+                    </tr>
+                </tfoot>
+            </table>
+            </div>
+            <div style="font-size:11px; color:#95a5a6; margin-top:6px;">
+                Each amount is the balance you last entered for that account — never derived from transactions.
+                Hit <em>Update</em> to revise an account, or use it to set its type / whether it counts.
+            </div>
+        </details>
+    ` : '';
+
     container.innerHTML = `
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:12px;">
             <div>
@@ -730,6 +796,7 @@ function loadFinancialHealth() {
             ${bucketChip('liquid')} ${bucketChip('investment')} ${bucketChip('locked')}
             <span style="font-size:12px; color:#7f8c8d; margin-left:auto;">Net worth: <strong style="color:#2c3e50;">$${fmtMoneyLocale(nw.total)}</strong></span>
         </div>
+        ${breakdownHtml}
         ${totalScheduled > 0 ? `
         <div style="background:#fff3cd; border:1px solid #ffc107; border-radius:6px; padding:12px; margin-bottom:12px;">
             <div style="font-size:12px; font-weight:600; margin-bottom:4px;">After Scheduled Activities:</div>
@@ -759,6 +826,25 @@ function loadFinancialHealth() {
             </div>
         </div>
     `;
+
+    // Wire the per-row Update buttons (data-attribute avoids quoting issues
+    // with account names containing apostrophes/quotes in inline onclick).
+    container.querySelectorAll('[data-update-account]').forEach(btn => {
+        btn.addEventListener('click', () => quickUpdateBalance(btn.getAttribute('data-update-account')));
+    });
+}
+
+// Open the Update Balance form pre-selected to a specific account so the user
+// can revise its amount / classification with one click.
+function quickUpdateBalance(accountName) {
+    showUpdateBalanceForm();
+    const select = document.getElementById('balanceAccountName');
+    select.value = accountName;
+    onBalanceAccountChange();
+    document.getElementById('balanceAmount').value = '';
+    const form = document.getElementById('updateBalanceForm');
+    form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    document.getElementById('balanceAmount').focus();
 }
 
 function showUpdateBalanceForm() {

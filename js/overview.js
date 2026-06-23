@@ -28,7 +28,8 @@ function overviewMonthlyBurn() {
 
 // Balance helpers (accountPurposeMap / emergencyEligibleTotal /
 // netWorthByBucket / BALANCE_BUCKETS) live in js/planner.js, which loads
-// first, so the Planner and Overview screens compute identically.
+// first, so the Planner and Overview screens compute identically. Balances are
+// keyed by accounts.id (FK), so there's no name ambiguity or orphaning.
 
 // Per-month income/expenses for the last 6 months (oldest → newest), cents.
 function overviewMonthlySavings() {
@@ -244,7 +245,7 @@ function renderBalanceTrend() {
     // reading onward, so a newly-tracked account appears as a new band rather
     // than faking a jump in the existing total.
     const rows = dbHelpers.queryAll(`
-        SELECT account_name, balance, as_of_date
+        SELECT account_id, balance, as_of_date
         FROM bank_balances
         ORDER BY as_of_date ASC, updated_at ASC
     `);
@@ -265,12 +266,12 @@ function renderBalanceTrend() {
 
     dates.forEach(date => {
         while (ri < rows.length && rows[ri][2] <= date) {
-            known[rows[ri][0]] = rows[ri][1];  // later row on same date wins
+            known[rows[ri][0]] = rows[ri][1];  // later row on same date wins (keyed by account_id)
             ri++;
         }
         const sums = { liquid: 0, investment: 0, locked: 0 };
-        Object.keys(known).forEach(name => {
-            sums[(purpose[name] || { bucket: 'liquid' }).bucket] += known[name];
+        Object.keys(known).forEach(id => {
+            sums[(purpose[id] || { bucket: 'liquid' }).bucket] += known[id];
         });
         series.liquid.push(fromCents(sums.liquid));
         series.investment.push(fromCents(sums.investment));

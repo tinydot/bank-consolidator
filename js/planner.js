@@ -613,13 +613,13 @@ const BALANCE_BUCKETS = {
     locked:     { label: 'Locked', icon: '🔒', color: '#95a5a6' },
 };
 
-// account_name → { bucket, emergency }. Accounts with a balance but no
+// account_id → { bucket, emergency }. Accounts with a balance but no
 // classification row default to liquid + counted toward the fund.
 function accountPurposeMap() {
     const map = {};
-    dbHelpers.queryAll(`SELECT account_name, bucket, emergency FROM account_purpose`)
-        .forEach(([name, bucket, emergency]) => {
-            map[name] = {
+    dbHelpers.queryAll(`SELECT account_id, bucket, emergency FROM account_purpose`)
+        .forEach(([id, bucket, emergency]) => {
+            map[id] = {
                 bucket: BALANCE_BUCKETS[bucket] ? bucket : 'liquid',
                 emergency: emergency ? 1 : 0,
             };
@@ -627,15 +627,15 @@ function accountPurposeMap() {
     return map;
 }
 
-function purposeFor(map, accountName) {
-    return map[accountName] || { bucket: 'liquid', emergency: 1 };
+function purposeFor(map, accountId) {
+    return map[accountId] || { bucket: 'liquid', emergency: 1 };
 }
 
-// account_name → latest recorded balance (cents), newest by updated_at wins.
+// account_id → latest recorded balance (cents), newest by updated_at wins.
 function latestBalancesByAccount() {
     const map = {};
-    dbHelpers.queryAll(`SELECT account_name, balance FROM bank_balances ORDER BY updated_at ASC`)
-        .forEach(([name, balance]) => { map[name] = balance; });
+    dbHelpers.queryAll(`SELECT account_id, balance FROM bank_balances ORDER BY updated_at ASC`)
+        .forEach(([id, balance]) => { map[id] = balance; });
     return map;
 }
 
@@ -667,17 +667,18 @@ function netWorthByBucket() {
 // show exactly how the emergency-fund figure is made up.
 function latestBalanceDetails() {
     const purpose = accountPurposeMap();
-
-    // account_name → bank name, to label each row "Bank — Account".
-    const bankByAccount = {};
-    dbHelpers.queryAll(`SELECT a.account_name, b.name FROM accounts a JOIN banks b ON a.bank_id = b.id`)
-        .forEach(([account, bank]) => { if (!bankByAccount[account]) bankByAccount[account] = bank; });
-
     const map = {};
-    dbHelpers.queryAll(`SELECT account_name, balance, as_of_date FROM bank_balances ORDER BY updated_at ASC`)
-        .forEach(([account, balance, asOf]) => { map[account] = { account, balance, asOf }; });
+    dbHelpers.queryAll(`
+        SELECT bb.account_id, bb.balance, bb.as_of_date, a.account_name, b.name
+        FROM bank_balances bb
+        JOIN accounts a ON a.id = bb.account_id
+        JOIN banks b ON b.id = a.bank_id
+        ORDER BY bb.updated_at ASC
+    `).forEach(([accountId, balance, asOf, account, bank]) => {
+        map[accountId] = { accountId, balance, asOf, account, bank };
+    });
     return Object.values(map)
-        .map(r => ({ ...r, bank: bankByAccount[r.account] || '', ...purposeFor(purpose, r.account) }))
+        .map(r => ({ ...r, ...purposeFor(purpose, r.accountId) }))
         .sort((a, b) => (b.emergency - a.emergency) || (b.balance - a.balance));
 }
 
@@ -748,8 +749,8 @@ function loadFinancialHealth() {
                 <td style="padding:7px 8px; font-size:13px; font-weight:600; color:#2c3e50; text-align:right; white-space:nowrap;">$${fmtMoneyLocale(d.balance)}</td>
                 <td style="padding:7px 8px; font-size:11px; color:#95a5a6; white-space:nowrap;">${escapeHtml(d.asOf || '')}</td>
                 <td style="padding:7px 8px; text-align:right; white-space:nowrap;">
-                    <button data-update-account="${escapeHtml(d.account)}" class="secondary-btn" style="padding:3px 10px; font-size:12px;">Update</button>
-                    <button data-delete-account="${escapeHtml(d.account)}" class="secondary-btn" title="Remove this balance entry" style="padding:3px 8px; font-size:12px; color:#e74c3c;">✕</button>
+                    <button data-update-account="${d.accountId}" class="secondary-btn" style="padding:3px 10px; font-size:12px;">Update</button>
+                    <button data-delete-account="${d.accountId}" class="secondary-btn" title="Remove this balance entry" style="padding:3px 8px; font-size:12px; color:#e74c3c;">✕</button>
                 </td>
             </tr>`;
     }).join('');
@@ -849,10 +850,11 @@ function loadFinancialHealth() {
 // Remove every balance snapshot + classification for an account. Used to clear
 // out a rogue / orphaned row (e.g. an account that was later renamed). Does not
 // touch transactions.
-function deleteBalanceAccount(accountName) {
-    if (!confirm(`Remove all recorded balances for "${accountName}"?\n\nThis only clears the balance entry — your transactions are untouched.`)) return;
-    db.run('DELETE FROM bank_balances WHERE account_name = ?', [accountName]);
-    db.run('DELETE FROM account_purpose WHERE account_name = ?', [accountName]);
+function deleteBalanceAccount(accountId) {
+    const label = dbHelpers.queryValue('SELECT account_name FROM accounts WHERE id = ?', [accountId]) || 'this account';
+    if (!confirm(`Remove all recorded balances for "${label}"?\n\nThis only clears the balance entry — your transactions are untouched.`)) return;
+    db.run('DELETE FROM bank_balances WHERE account_id = ?', [accountId]);
+    db.run('DELETE FROM account_purpose WHERE account_id = ?', [accountId]);
     markDirty();
     loadFinancialHealth();
     if (typeof loadOverview === 'function') loadOverview();
@@ -861,19 +863,10 @@ function deleteBalanceAccount(accountName) {
 
 // Open the Update Balance form pre-selected to a specific account so the user
 // can revise its amount / classification with one click.
-function quickUpdateBalance(accountName) {
+function quickUpdateBalance(accountId) {
     showUpdateBalanceForm();
     const select = document.getElementById('balanceAccountName');
-    // The dropdown is built from imported accounts; a balance saved for an
-    // account that was since renamed/removed won't be there. Inject it so the
-    // row stays editable instead of leaving the field blank.
-    if (!Array.from(select.options).some(o => o.value === accountName)) {
-        const opt = document.createElement('option');
-        opt.value = accountName;
-        opt.textContent = `${accountName} (not in account list)`;
-        select.appendChild(opt);
-    }
-    select.value = accountName;
+    select.value = String(accountId);
     onBalanceAccountChange();
     document.getElementById('balanceAmount').value = '';
     const form = document.getElementById('updateBalanceForm');
@@ -887,7 +880,7 @@ function showUpdateBalanceForm() {
 
     const select = document.getElementById('balanceAccountName');
     const accounts = dbHelpers.queryAll(`
-        SELECT DISTINCT a.account_name, b.name AS bank_name
+        SELECT a.id, a.account_name, b.name AS bank_name
         FROM accounts a
         JOIN banks b ON a.bank_id = b.id
         ORDER BY b.name, a.account_name
@@ -903,10 +896,9 @@ function showUpdateBalanceForm() {
         select.appendChild(opt);
     } else {
         accounts.forEach(acc => {
-            const accountName = acc[0];
-            const bankName = acc[1];
+            const [accountId, accountName, bankName] = acc;
             const opt = document.createElement('option');
-            opt.value = accountName;
+            opt.value = accountId;
             opt.textContent = `${bankName} — ${accountName}`;
             select.appendChild(opt);
         });
@@ -923,8 +915,8 @@ function cancelBalanceForm() {
 // Pre-fill the bucket / emergency fields from the selected account's saved
 // classification (or sensible defaults for a never-classified account).
 function onBalanceAccountChange() {
-    const name = document.getElementById('balanceAccountName').value;
-    const p = accountPurposeMap()[name] || { bucket: 'liquid', emergency: 1 };
+    const id = document.getElementById('balanceAccountName').value;
+    const p = accountPurposeMap()[id] || { bucket: 'liquid', emergency: 1 };
     document.getElementById('balanceBucket').value = p.bucket;
     document.getElementById('balanceEmergency').checked = !!p.emergency;
 }
@@ -937,21 +929,21 @@ function onBalanceBucketChange() {
 }
 
 function saveBalance() {
-    const accountName = document.getElementById('balanceAccountName').value.trim();
+    const accountId = document.getElementById('balanceAccountName').value;
     const amount = toCents(document.getElementById('balanceAmount').value);
     const asOfDate = document.getElementById('balanceDate').value;
     const bucket = document.getElementById('balanceBucket').value;
     const emergency = document.getElementById('balanceEmergency').checked ? 1 : 0;
 
-    if (!accountName || !amount || !asOfDate) {
+    if (!accountId || !amount || !asOfDate) {
         alert('Please fill in all fields');
         return;
     }
 
-    db.run('INSERT INTO bank_balances (account_name, balance, as_of_date) VALUES (?, ?, ?)', [accountName, amount, asOfDate]);
-    db.run(`INSERT INTO account_purpose (account_name, bucket, emergency) VALUES (?, ?, ?)
-            ON CONFLICT(account_name) DO UPDATE SET bucket = excluded.bucket, emergency = excluded.emergency`,
-        [accountName, bucket, emergency]);
+    db.run('INSERT INTO bank_balances (account_id, balance, as_of_date) VALUES (?, ?, ?)', [accountId, amount, asOfDate]);
+    db.run(`INSERT INTO account_purpose (account_id, bucket, emergency) VALUES (?, ?, ?)
+            ON CONFLICT(account_id) DO UPDATE SET bucket = excluded.bucket, emergency = excluded.emergency`,
+        [accountId, bucket, emergency]);
     markDirty();
     cancelBalanceForm();
     loadFinancialHealth();

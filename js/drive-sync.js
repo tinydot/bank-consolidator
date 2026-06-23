@@ -290,6 +290,7 @@ async function driveRestore() {
         );
         const buf = await resp.arrayBuffer();
         db = new SQL.Database(new Uint8Array(buf));
+        setupSchema();  // migrate an older restored DB + enable FK enforcement
         await saveDatabaseToIndexedDB();
 
         // Mirror handleDatabaseImport's full reload.

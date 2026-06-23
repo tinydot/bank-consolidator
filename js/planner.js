@@ -105,31 +105,60 @@ function budgetMonthlyTotal() {
     return v ? (parseInt(v, 10) || 0) : 0;
 }
 
+// Budget limit per category id, in cents.
+function budgetByCategory() {
+    const map = {};
+    dbHelpers.queryAll(`SELECT category_id, monthly_limit FROM budget`)
+        .forEach(([catId, lim]) => { map[catId] = lim; });
+    return map;
+}
+
 // Enabled commitments as plain objects, with every field commitmentAmountForMonth
-// needs. Used by the fund-total helper below.
+// needs (plus category_id, for netting against the budget). Used by the
+// fund-total helpers below.
 function enabledCommitments() {
     return dbHelpers.queryAll(`
         SELECT amount, type, day_of_month, payment_dates, active_months,
-               interval_months, anchor_date, enabled
+               interval_months, anchor_date, enabled, category_id
         FROM expense_commitments WHERE enabled = 1
     `).map(r => ({
         amount: r[0], type: r[1], day_of_month: r[2], payment_dates: r[3],
-        active_months: r[4], interval_months: r[5], anchor_date: r[6], enabled: r[7]
+        active_months: r[4], interval_months: r[5], anchor_date: r[6], enabled: r[7],
+        category_id: r[8]
     }));
 }
 
+// The budget's net contribution to one month, in cents: each category adds
+// max(its limit − the monthly commitments already tagged to it, 0). This is
+// what avoids double-counting — a budgeted category that also has a monthly
+// commitment is settled once, at the larger of the two figures (the commitment
+// is listed as its own row; the budget only tops it up if the limit is higher).
+// `budgetByCat` and `monthlyCommitments` are passed in so callers fetch once.
+function netBudgetBaselineForMonth(budgetByCat, monthlyCommitments, year, month) {
+    let total = 0;
+    for (const catId in budgetByCat) {
+        const committed = monthlyCommitments
+            .filter(c => String(c.category_id) === catId)
+            .reduce((s, c) => s + commitmentAmountForMonth(c, year, month), 0);
+        total += Math.max(budgetByCat[catId] - committed, 0);
+    }
+    return total;
+}
+
 // Emergency-fund target, in cents: the expected spend over the next 6 months.
-// Each month contributes the budget run-rate plus every Planner commitment that
-// actually lands in it (monthly, term-dated, every-N-months interval, and
-// per-work/non-work-day). The lumpy commitments are exactly what make this more
+// Each month contributes every Planner commitment that lands in it (monthly,
+// term-dated, every-N-months interval, per-work/non-work-day) plus the budget
+// net of any monthly commitment already tagged to the same category — so steady
+// spend is counted exactly once. The lumpy commitments are what make this more
 // accurate than a flat "monthly figure × 6".
 function emergencyFundTargetTotal() {
-    const base = budgetMonthlyTotal();
+    const budgetByCat = budgetByCategory();
     const commitments = enabledCommitments();
+    const monthly = commitments.filter(c => c.type === 'monthly');
     let total = 0;
     plannerMonths().forEach(m => {
-        total += base;
         commitments.forEach(c => { total += commitmentAmountForMonth(c, m.year, m.month); });
+        total += netBudgetBaselineForMonth(budgetByCat, monthly, m.year, m.month);
     });
     return total;
 }
@@ -185,6 +214,19 @@ function renderPlannerTable(commitments, variableSpend) {
         return;
     }
 
+    // Budget baseline per month, net of monthly commitments tagged to the same
+    // category (avoids double-counting). gross/netDiff power the explainer note.
+    const budgetByCat = budgetByCategory();
+    const monthlyCommitments = commitments.filter(c => c.type === 'monthly');
+    const baselineByMonth = {};
+    months.forEach(m => {
+        baselineByMonth[m.key] = netBudgetBaselineForMonth(budgetByCat, monthlyCommitments, m.year, m.month);
+    });
+    const baseline6mo = months.reduce((s, m) => s + baselineByMonth[m.key], 0);
+    const baseline3mo = months.slice(0, 3).reduce((s, m) => s + baselineByMonth[m.key], 0);
+    const grossBudget = variableSpend; // sum of all category limits, before netting
+    const nettedOut = grossBudget * months.length - baseline6mo; // amount removed as overlap
+
     // Pre-compute per-commitment month amounts
     const matrix = {};
     commitments.forEach(c => {
@@ -206,8 +248,8 @@ function renderPlannerTable(commitments, variableSpend) {
         commitmentTotals3mo[c.id] = months.slice(0, 3).reduce((s, m) => s + (matrix[c.id][m.key] || 0), 0);
     });
 
-    const grandTotal6mo = Object.values(monthTotals).reduce((a, b) => a + b, 0) + variableSpend * 6;
-    const grandTotal3mo = months.slice(0, 3).reduce((s, m) => s + monthTotals[m.key], 0) + variableSpend * 3;
+    const grandTotal6mo = Object.values(monthTotals).reduce((a, b) => a + b, 0) + baseline6mo;
+    const grandTotal3mo = months.slice(0, 3).reduce((s, m) => s + monthTotals[m.key], 0) + baseline3mo;
 
     // Group commitments by category
     const catMap = {};  // cat_name → {icon, color, items[]}
@@ -394,9 +436,10 @@ function renderPlannerTable(commitments, variableSpend) {
     });
 
     // ── Budget baseline row (always visible) ───────────────────────────────
-    // variableSpend here is the budget baseline (sum of Budget-tab category
-    // limits) — the steady monthly run-rate the commitments below refine.
-    if (variableSpend > 0) {
+    // Per month, the budget net of any monthly commitment tagged to the same
+    // category (netBudgetBaselineForMonth) — so a category that already appears
+    // as a monthly commitment above isn't counted twice.
+    if (grossBudget > 0) {
         const varSection = document.createElement('div');
         varSection.style.cssText = 'margin-bottom:10px; border-radius:8px; overflow:hidden; border:1px solid #f39c1230;';
         const tbl = document.createElement('table');
@@ -405,23 +448,26 @@ function renderPlannerTable(commitments, variableSpend) {
         const tr = document.createElement('tr');
         const tdName = document.createElement('td');
         tdName.style.cssText = 'padding:10px 14px; background:#fff8e1;';
+        const subLine = nettedOut > 0
+            ? `Your S$${fmtMoney(grossBudget)}/mo budget, net of monthly commitments already listed above`
+            : 'Sum of your Budget-tab category limits';
         tdName.innerHTML = `<div style="display:flex; align-items:center; gap:8px;">
             <span style="font-size:16px;">🛒</span>
             <div>
-                <div style="font-weight:600; font-size:13px;">Monthly budget baseline</div>
-                <div style="font-size:11px; color:#95a5a6;">Sum of your Budget-tab category limits</div>
+                <div style="font-weight:600; font-size:13px;">Monthly budget baseline${nettedOut > 0 ? ' <span style="font-weight:400; color:#95a5a6;">(net of commitments)</span>' : ''}</div>
+                <div style="font-size:11px; color:#95a5a6;">${subLine}</div>
             </div>
         </div>`;
         tr.appendChild(tdName);
-        months.forEach(() => {
+        months.forEach(m => {
             const td = document.createElement('td');
             td.style.cssText = 'text-align:right; padding:10px 14px; background:#fff8e1; font-weight:600; color:#e67e22; font-size:13px;';
-            td.textContent = `S$${fmtMoney(variableSpend)}`;
+            td.textContent = `S$${fmtMoney(baselineByMonth[m.key])}`;
             tr.appendChild(td);
         });
         const tdTot = document.createElement('td');
         tdTot.style.cssText = 'text-align:right; padding:10px 14px; background:#fff8e1; font-weight:700; color:#e67e22;';
-        tdTot.textContent = `S$${fmtMoney(variableSpend * 6)}`;
+        tdTot.textContent = `S$${fmtMoney(baseline6mo)}`;
         tr.appendChild(tdTot);
         tr.appendChild(document.createElement('td'));
         tbody.appendChild(tr);
@@ -441,7 +487,7 @@ function renderPlannerTable(commitments, variableSpend) {
     tdLabel.textContent = 'Monthly total';
     totalRow.appendChild(tdLabel);
     months.forEach(m => {
-        const colTotal = monthTotals[m.key] + (variableSpend || 0);
+        const colTotal = monthTotals[m.key] + (baselineByMonth[m.key] || 0);
         const td = document.createElement('td');
         td.style.cssText = 'text-align:right; padding:12px 14px; font-size:13px; min-width:95px;';
         td.textContent = `S$${fmtMoney(colTotal)}`;

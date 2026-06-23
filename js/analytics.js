@@ -954,7 +954,7 @@ function buildReportHTML() {
         SELECT ec.description, ec.amount, ec.type, ec.payment_dates, ec.active_months,
             COALESCE(c.name,'Uncategorised') as cat, COALESCE(c.icon,'📦') as icon,
             COALESCE(c.color,'#95a5a6') as color,
-            ec.day_of_month, ec.interval_months, ec.anchor_date
+            ec.day_of_month, ec.interval_months, ec.anchor_date, ec.category_id
         FROM expense_commitments ec
         LEFT JOIN categories c ON ec.category_id=c.id
         WHERE ec.enabled=1
@@ -1168,20 +1168,29 @@ ${summaryCards}
 function rpt_planner(plannerRows, variableSpend, months) {
     // Group by category
     const catMap = {};
+    const allItems = [];
     plannerRows.forEach(r => {
-        const [desc, amount, type, payDates, activeMonths, cat, icon, color, dayOfMonth, intervalMonths, anchorDate] = r;
+        const [desc, amount, type, payDates, activeMonths, cat, icon, color, dayOfMonth, intervalMonths, anchorDate, categoryId] = r;
         if (!catMap[cat]) catMap[cat] = { icon, color, items: [] };
         // Field names mirror commitmentAmountForMonth's expectations so we can
         // reuse the app's single source of truth for every commitment type.
-        catMap[cat].items.push({
-            desc, amount, type, enabled: 1,
+        const item = {
+            desc, amount, type, enabled: 1, category_id: categoryId,
             payment_dates: payDates, active_months: activeMonths,
             day_of_month: dayOfMonth, interval_months: intervalMonths, anchor_date: anchorDate
-        });
+        };
+        catMap[cat].items.push(item);
+        allItems.push(item);
     });
 
     // Reuse the app's per-month logic (handles monthly/term/interval/workday).
     const amtForMonth = (item, year, month) => commitmentAmountForMonth(item, year, month);
+
+    // Budget baseline per month, net of monthly commitments tagged to the same
+    // category — identical netting to the app so the report agrees.
+    const budgetByCat = budgetByCategory();
+    const monthlyItems = allItems.filter(c => c.type === 'monthly');
+    const baselineByMonth = months.map(m => netBudgetBaselineForMonth(budgetByCat, monthlyItems, m.year, m.month));
 
     const mHeaders = months.map(m => `<th class="r">${rpt_esc(m.label)}</th>`).join('');
     let grandTotal = 0;
@@ -1241,20 +1250,24 @@ ${itemRows}
 </details>`;
     }).join('');
 
-    // Budget baseline row
+    // Budget baseline row (per-month, net of monthly commitments)
     let varHTML = '';
+    const baseline6mo = baselineByMonth.reduce((a, b) => a + b, 0);
+    const nettedOut = variableSpend * months.length - baseline6mo;
     if (variableSpend > 0) {
-        months.forEach((_, i) => { monthGrandTotals[i] += variableSpend; });
-        const varTotal = variableSpend * 6;
-        grandTotal += varTotal;
-        const varCells = months.map(() =>
-            `<td class="r" style="color:#e67e22;font-weight:600;">${rpt_fmt(variableSpend)}</td>`
+        months.forEach((_, i) => { monthGrandTotals[i] += baselineByMonth[i]; });
+        grandTotal += baseline6mo;
+        const varCells = baselineByMonth.map(v =>
+            `<td class="r" style="color:#e67e22;font-weight:600;">${rpt_fmt(v)}</td>`
         ).join('');
+        const baselineNote = nettedOut > 0
+            ? '(budget, net of monthly commitments)'
+            : '(sum of Budget-tab limits)';
         varHTML = `<table style="margin-bottom:10px;">
 <tbody><tr>
-  <td><span style="margin-right:6px;">🛒</span>Monthly budget baseline <span style="font-size:11px;color:#95a5a6;">(sum of Budget-tab limits)</span></td>
+  <td><span style="margin-right:6px;">🛒</span>Monthly budget baseline <span style="font-size:11px;color:#95a5a6;">${baselineNote}</span></td>
   ${varCells}
-  <td class="r" style="color:#e67e22;font-weight:700;">${rpt_fmt(varTotal)}</td>
+  <td class="r" style="color:#e67e22;font-weight:700;">${rpt_fmt(baseline6mo)}</td>
 </tr></tbody></table>`;
     }
 

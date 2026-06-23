@@ -21,6 +21,53 @@ Single-page vanilla-JS app that consolidates bank CSV exports into a
 client-side SQLite database (via `sql.js`) with analytics, budgeting, rules,
 and an emergency-fund planner.
 
+### Intended user workflow
+
+The tabs are built to be used in this order — keep them coherent when changing
+any one of them:
+
+1. **Import** bank CSV exports (`js/import.js`). Each bank gets a profile
+   (columns, date format) and the account is auto-detected from the filename.
+2. **Categorise** using the Analytics category breakdown to see where the money
+   goes, then add/refine **Categories** (`js/categories.js`) and **Rules**
+   (`js/rules.js`) so future imports self-categorise.
+3. **Budget** (`js/budget.js`) — set a monthly limit per category. The workflow
+   is **monthly**: both Budget and Analytics have a month navigator, so you can
+   step through past months and see how each month's actual spend compares
+   against the same limits, and tune the limits over time.
+4. **Emergency fund (baseline)** — the 6-month target starts from the budget:
+   the sum of all category limits is the steady monthly run-rate
+   (`budgetMonthlyTotal()` in `js/planner.js`), × 6 months.
+5. **Planner** (`js/planner.js`) refines that estimate. A flat monthly budget
+   misses lumpy, calendar-specific costs, so the Planner adds **expense
+   commitments** that land in specific months — e.g. Singapore school-term fees
+   (`term` type, explicit dates), or fixed-cadence costs like aircon servicing
+   and dental scaling (`interval` type, every N months from a first-due date).
+   The fund target = budget baseline every month **plus** every commitment that
+   actually falls in the next 6 months (`emergencyFundTargetTotal()`), which is
+   what makes it more accurate than `monthly run-rate × 6`.
+
+The **Overview** dashboard and the exported Analytics report both read the same
+`budgetMonthlyTotal()` / `emergencyFundTargetTotal()` helpers, so every screen
+agrees on the target. There is **no** separate manually-typed "variable spend"
+figure any more — the budget is the single source of the baseline.
+
+#### Expense-commitment types (`commitmentAmountForMonth`)
+
+`expense_commitments.type` drives how much a commitment contributes in a given
+month. All amounts are integer cents:
+
+- `monthly` — every month (optional `active_months` CSV restricts which months).
+- `term` — only on the explicit `payment_dates` (`YYYY-MM-DD`, comma-separated).
+- `interval` — every `interval_months` months counting from `anchor_date` (the
+  first due date); used for aircon/dental-style fixed cadences.
+- `workday` / `nonworkday` — a per-day amount × the count of Mon–Fri / Sat–Sun
+  days in the month.
+
+When adding a new type, update **every** `commitmentAmountForMonth` call site
+plus the parallel switches in the Planner month-view/day-detail calendars
+(`js/planner.js`) and the exported report (`rpt_planner` in `js/analytics.js`).
+
 **No bundler, no modules.** `js/*.js` files are plain classic scripts loaded
 in dependency order from `index.html` (see the `<script src>` block near the
 bottom). They share one global scope on purpose — inline `onclick=` handlers

@@ -7,6 +7,24 @@ Runs entirely in the browser. No backend of our own — your data stays on your
 device (IndexedDB + a localStorage crash-safety backup), with an **optional,
 manual** backup to your own Google Drive if you want it.
 
+## How it's meant to be used
+
+The app walks a single monthly loop:
+
+1. **Import** your bank CSVs.
+2. **Categorise** — use Analytics to see where the money goes, then add
+   categories and rules so future imports self-sort.
+3. **Budget** — set a monthly limit per category. Budget and Analytics both
+   have a month navigator, so you can step through months and compare each
+   month's real spend against the same limits and tune them.
+4. **Emergency fund** — the sum of your budget limits is the baseline monthly
+   run-rate; × 6 months is your starting emergency-fund target.
+5. **Planner** — refine that target with the lumpy costs a flat monthly budget
+   misses: Singapore school-term fees on specific dates, or fixed-cadence costs
+   like aircon servicing (every 3 months) and dental scaling (every 6 months).
+   The target becomes *budget baseline + every commitment that lands in the
+   next 6 months*, which is more accurate than baseline × 6.
+
 ## Features
 
 - **Overview** — home dashboard with emergency-fund progress + ETA (at your
@@ -19,11 +37,14 @@ manual** backup to your own Google Drive if you want it.
 - **Categories & subcategories** — colour-coded, sortable, with per-row icons.
 - **Transaction rules** — keyword → category/subcategory or auto-ignore, with
   priority ordering and case sensitivity toggle.
-- **Analytics** — monthly trend chart, category breakdown, top merchants,
-  exportable static HTML report.
-- **Budget** — monthly limits per category with progress bars.
-- **Planner** — emergency-fund target tracking with expense commitments and
-  one-off activity costs.
+- **Analytics** — per-month view (step through months to compare spend vs the
+  same budget limits), category breakdown, top merchants, exportable static
+  HTML report.
+- **Budget** — monthly limits per category with progress bars and a month
+  navigator. The sum of these limits is the baseline for the emergency fund.
+- **Planner** — emergency-fund target = budget baseline + recurring expense
+  commitments (monthly, `term`/specific-dates, every-N-months `interval` for
+  aircon/dental, or per-workday/weekend), plus one-off activity costs.
 - **Offline-first** — works from `file://` on iPhone Safari with no server.
 - **Backup & Sync** — download/import the raw `.sqlite` file, or back up and
   restore to your own Google Drive (optional, manual, `drive.file` scope only).
@@ -107,8 +128,8 @@ js/
   categories.js    Categories + subcategories CRUD
   bank-profiles.js Bank/account profile editor
   rules.js         Keyword → category rules
-  budget.js        Monthly per-category limits
-  planner.js       Emergency fund + commitments + activities
+  budget.js        Monthly per-category limits (baseline for the fund target)
+  planner.js       Emergency fund (budget baseline + recurring commitments) + activities
   overview.js      Home dashboard: fund progress + ETA, savings rate, balance trend
   drive-sync.js    Optional manual Google Drive backup/restore (drive.file)
 ```

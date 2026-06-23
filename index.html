@@ -233,7 +233,7 @@
                     <button onclick="showAddCommitmentForm()" style="padding:6px 16px;">+ Add Expense</button>
                 </div>
                 <p style="color:#7f8c8d; margin-bottom:20px;">
-                    Plan your fixed commitments and variable spend for the next 6 months. The total is your minimum emergency fund target.
+                    Your <strong>Budget</strong> tab sets the baseline monthly spend; here you add the lumpy, recurring commitments a flat budget misses — term-dated school fees, or every-N-months costs like aircon servicing and dental scaling. Baseline + commitments over 6 months is your emergency-fund target.
                 </p>
 
                 <!-- Add/Edit form -->
@@ -266,6 +266,7 @@
                             <select id="plannerType" onchange="togglePlannerTypeFields()">
                                 <option value="monthly">Monthly (every month)</option>
                                 <option value="term">Term / specific dates</option>
+                                <option value="interval">Every N months (e.g. aircon, dental)</option>
                                 <option value="workday">Workday (Mon–Fri, per day)</option>
                                 <option value="nonworkday">Non-workday / Weekend (Sat–Sun, per day)</option>
                             </select>
@@ -278,6 +279,18 @@
                             <label>Payment dates <span style="color:#6c7a89; font-weight:400;">(YYYY-MM-DD, comma-separated)</span></label>
                             <input type="text" id="plannerDates" placeholder="e.g. 2026-03-01, 2026-06-01, 2026-09-01">
                         </div>
+                        <div class="form-group" id="plannerIntervalField" style="display:none; grid-column:1/-1; margin:0;">
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                                <div>
+                                    <label>Repeat every <span style="color:#6c7a89; font-weight:400;">(months)</span></label>
+                                    <input type="number" id="plannerIntervalMonths" min="1" step="1" placeholder="e.g. 3 for aircon, 6 for dental">
+                                </div>
+                                <div>
+                                    <label>First due date <span style="color:#6c7a89; font-weight:400;">(YYYY-MM-DD)</span></label>
+                                    <input type="text" id="plannerAnchorDate" placeholder="e.g. 2026-07-15">
+                                </div>
+                            </div>
+                        </div>
                         <div class="form-group" style="grid-column:1/-1; margin:0;">
                             <label>Notes <span style="color:#6c7a89; font-weight:400;">(optional)</span></label>
                             <input type="text" id="plannerNotes" placeholder="e.g. Due on 1st of month">
@@ -289,19 +302,16 @@
                     </div>
                 </div>
 
-                <!-- Variable spend row -->
+                <!-- Budget baseline (read-only, sourced from the Budget tab) -->
                 <div style="background:#fff8e1; border:1px solid #f39c12; border-radius:8px; padding:14px 18px; margin-bottom:20px; display:flex; align-items:center; gap:16px;">
                     <span style="font-size:18px;">💰</span>
                     <div style="flex:1;">
-                        <div style="font-weight:600; margin-bottom:2px;">Monthly variable spend estimate</div>
-                        <div style="font-size:12px; color:#7f8c8d;">Food, transport, utilities and other non-fixed costs</div>
+                        <div style="font-weight:600; margin-bottom:2px;">Monthly budget baseline</div>
+                        <div style="font-size:12px; color:#7f8c8d;">Sum of your category limits from the <strong>Budget</strong> tab — the steady run-rate the fund is built on. Adjust it there.</div>
                     </div>
                     <div style="display:flex; align-items:center; gap:8px;">
-                        <span style="color:#7f8c8d; font-size:13px;">S$</span>
-                        <input type="number" id="plannerVariableSpend" min="0" step="1" placeholder="0"
-                            style="width:100px; text-align:right; font-size:16px; font-weight:600; border:1px solid #ddd; border-radius:4px; padding:4px 8px;">
+                        <span id="plannerBudgetBaseline" style="font-size:16px; font-weight:600; color:#e67e22;">S$0.00</span>
                         <span style="color:#7f8c8d; font-size:13px;">/ mo</span>
-                        <button class="secondary-btn" style="padding:4px 12px; font-size:12px;" onclick="savePlannerVariable()">Save</button>
                     </div>
                 </div>
 

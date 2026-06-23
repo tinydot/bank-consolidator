@@ -402,6 +402,8 @@ function createTables() {
             day_of_month  INTEGER,
             payment_dates TEXT,
             active_months TEXT,
+            interval_months INTEGER,
+            anchor_date   TEXT,
             notes         TEXT,
             enabled       INTEGER DEFAULT 1,
             FOREIGN KEY (category_id)    REFERENCES categories(id) ON DELETE SET NULL,
@@ -471,6 +473,9 @@ function createTables() {
     // Add category columns to expense_commitments if upgrading from earlier version
     try { db.run('ALTER TABLE expense_commitments ADD COLUMN category_id INTEGER'); } catch(e) {}
     try { db.run('ALTER TABLE expense_commitments ADD COLUMN subcategory_id INTEGER'); } catch(e) {}
+    // Add interval-recurrence columns (every-N-months expenses: aircon, dental…)
+    try { db.run('ALTER TABLE expense_commitments ADD COLUMN interval_months INTEGER'); } catch(e) {}
+    try { db.run('ALTER TABLE expense_commitments ADD COLUMN anchor_date TEXT'); } catch(e) {}
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

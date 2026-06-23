@@ -36,6 +36,7 @@
   §12. TRANSACTION RULES
   §13. BUDGET
   §14. PLANNER (Emergency Fund)
+  §15. OVERVIEW (Home Dashboard)
 ═══════════════════════════════════════════════════════════════════════════════
 */
 

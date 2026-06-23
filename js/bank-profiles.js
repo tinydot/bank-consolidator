@@ -411,6 +411,10 @@ function switchTab(tab) {
     activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
     document.getElementById(`${tab}-tab`).classList.add('active');
 
+    if (tab === 'overview') {
+        loadOverview();
+    }
+
     if (tab === 'planner') {
         loadPlanner();
     }

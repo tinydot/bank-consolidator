@@ -596,37 +596,96 @@ async function deleteCommitment(id) {
 // §15.5. Financial Health & Activities
 // ═══════════════════════════════════════════════════════════════════════════
 
-function loadFinancialHealth() {
-    const latestBalance = dbHelpers.queryAll(`
-        SELECT account_name, balance, as_of_date 
-        FROM bank_balances 
-        ORDER BY updated_at DESC 
-        LIMIT 1
-    `);
+// ─────────────────────────────────────────────────────────────────────────
+// §14.1. Balance buckets (shared by Planner Financial Health + Overview)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Balances live in bank_balances (append-only snapshots per account) and each
+// account is classified once in account_purpose:
+//   bucket    : how it groups in net worth — liquid / investment / locked
+//   emergency : whether it counts toward the 6-month emergency-fund target
+// These helpers are the single source of truth so the Planner and Overview
+// screens agree. All amounts are integer cents.
 
+const BALANCE_BUCKETS = {
+    liquid:     { label: 'Liquid', icon: '💵', color: '#27ae60' },
+    investment: { label: 'Investment', icon: '📈', color: '#3498db' },
+    locked:     { label: 'Locked', icon: '🔒', color: '#95a5a6' },
+};
+
+// account_name → { bucket, emergency }. Accounts with a balance but no
+// classification row default to liquid + counted toward the fund.
+function accountPurposeMap() {
+    const map = {};
+    dbHelpers.queryAll(`SELECT account_name, bucket, emergency FROM account_purpose`)
+        .forEach(([name, bucket, emergency]) => {
+            map[name] = {
+                bucket: BALANCE_BUCKETS[bucket] ? bucket : 'liquid',
+                emergency: emergency ? 1 : 0,
+            };
+        });
+    return map;
+}
+
+function purposeFor(map, accountName) {
+    return map[accountName] || { bucket: 'liquid', emergency: 1 };
+}
+
+// account_name → latest recorded balance (cents), newest by updated_at wins.
+function latestBalancesByAccount() {
+    const map = {};
+    dbHelpers.queryAll(`SELECT account_name, balance FROM bank_balances ORDER BY updated_at ASC`)
+        .forEach(([name, balance]) => { map[name] = balance; });
+    return map;
+}
+
+// Sum of latest balances for accounts flagged emergency = 1.
+function emergencyEligibleTotal() {
+    const purpose = accountPurposeMap();
+    const balances = latestBalancesByAccount();
+    let total = 0, count = 0;
+    Object.keys(balances).forEach(name => {
+        if (purposeFor(purpose, name).emergency) { total += balances[name]; count++; }
+    });
+    return { total, count };
+}
+
+// { liquid, investment, locked, total } of latest balances.
+function netWorthByBucket() {
+    const purpose = accountPurposeMap();
+    const balances = latestBalancesByAccount();
+    const out = { liquid: 0, investment: 0, locked: 0, total: 0 };
+    Object.keys(balances).forEach(name => {
+        out[purposeFor(purpose, name).bucket] += balances[name];
+        out.total += balances[name];
+    });
+    return out;
+}
+
+function loadFinancialHealth() {
     const container = document.getElementById('balanceDisplay');
-    if (!latestBalance.length) {
+    const balances = latestBalancesByAccount();
+
+    if (Object.keys(balances).length === 0) {
         container.innerHTML = '<div style="color:#7f8c8d; font-size:13px;">No bank balance recorded yet. Click "Update Balance" to add.</div>';
         return;
     }
 
-    const [accountName, balance, asOfDate] = latestBalance[0];
+    const { total: eligible, count: eligibleCount } = emergencyEligibleTotal();
+    const nw = netWorthByBucket();
 
-    // Calculate emergency fund need (from planner)
+    // Emergency-fund target = 6 × monthly burn (monthly commitments + variable spend).
     const varRow = dbHelpers.queryAll(`SELECT value FROM planner_settings WHERE key = 'variable_spend'`);
     const variableSpend = varRow.length ? parseFloat(varRow[0][0]) : 0;
 
-    const commitmentRows = dbHelpers.queryAll(`SELECT amount, type, active_months, payment_dates FROM expense_commitments WHERE enabled = 1`);
     let monthlyCommitments = 0;
-    commitmentRows.forEach(r => {
-        const [amount, type] = r;
-        if (type === 'monthly') monthlyCommitments += amount;
-    });
+    dbHelpers.queryAll(`SELECT amount, type FROM expense_commitments WHERE enabled = 1`)
+        .forEach(([amount, type]) => { if (type === 'monthly') monthlyCommitments += amount; });
 
     const monthlyBurn = monthlyCommitments + variableSpend;
     const emergencyFundTarget = monthlyBurn * 6;
 
-    // Calculate scheduled activities impact
+    // Scheduled activities draw down the spendable (emergency-eligible) pot.
     const scheduledActivities = dbHelpers.queryAll(`
         SELECT SUM(ai.estimated_cost)
         FROM planned_activities pa
@@ -635,42 +694,47 @@ function loadFinancialHealth() {
     `);
     const totalScheduled = scheduledActivities.length && scheduledActivities[0][0] ? scheduledActivities[0][0] : 0;
 
-    const projectedBalance = balance - totalScheduled;
-    const monthsCovered = projectedBalance / monthlyBurn;
+    const projectedBalance = eligible - totalScheduled;
+    const monthsCovered = monthlyBurn > 0 ? projectedBalance / monthlyBurn : 0;
 
     let statusIcon, statusText, statusColor;
-    if (projectedBalance >= emergencyFundTarget) {
-        statusIcon = '✅';
-        statusText = 'Healthy';
-        statusColor = '#27ae60';
+    if (monthlyBurn <= 0) {
+        statusIcon = 'ℹ️'; statusText = 'Set your target'; statusColor = '#7f8c8d';
+    } else if (projectedBalance >= emergencyFundTarget) {
+        statusIcon = '✅'; statusText = 'Healthy'; statusColor = '#27ae60';
     } else if (monthsCovered >= 3) {
-        statusIcon = '⚠️';
-        statusText = 'At Risk';
-        statusColor = '#f39c12';
+        statusIcon = '⚠️'; statusText = 'At Risk'; statusColor = '#f39c12';
     } else {
-        statusIcon = '🔴';
-        statusText = 'Critical';
-        statusColor = '#e74c3c';
+        statusIcon = '🔴'; statusText = 'Critical'; statusColor = '#e74c3c';
     }
+
+    const bucketChip = (key) => nw[key] > 0
+        ? `<span style="display:inline-flex; align-items:center; gap:4px; font-size:12px; color:#2c3e50;">
+               ${BALANCE_BUCKETS[key].icon} ${BALANCE_BUCKETS[key].label}: <strong>$${fmtMoneyLocale(nw[key])}</strong></span>`
+        : '';
 
     container.innerHTML = `
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:12px;">
             <div>
-                <div style="font-size:11px; color:#7f8c8d; margin-bottom:4px;">CURRENT BALANCE (${accountName})</div>
-                <div style="font-size:24px; font-weight:700; color:#2c3e50;">$${fmtMoneyLocale(balance)}</div>
-                <div style="font-size:11px; color:#95a5a6; margin-top:2px;">As of ${asOfDate}</div>
+                <div style="font-size:11px; color:#7f8c8d; margin-bottom:4px;">EMERGENCY-FUND BALANCE</div>
+                <div style="font-size:24px; font-weight:700; color:#2c3e50;">$${fmtMoneyLocale(eligible)}</div>
+                <div style="font-size:11px; color:#95a5a6; margin-top:2px;">${eligibleCount} account${eligibleCount === 1 ? '' : 's'} counted</div>
             </div>
             <div>
-                <div style="font-size:11px; color:#7f8c8d; margin-bottom:4px;">6-MONTH EMERGENCY FUND</div>
+                <div style="font-size:11px; color:#7f8c8d; margin-bottom:4px;">6-MONTH TARGET</div>
                 <div style="font-size:24px; font-weight:700; color:#7f8c8d;">$${fmtMoneyLocale(emergencyFundTarget)}</div>
                 <div style="font-size:11px; color:#95a5a6; margin-top:2px;">$${fmtMoney(monthlyBurn)} × 6 months</div>
             </div>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:14px; padding:10px 12px; background:#f8f9fa; border-radius:6px; margin-bottom:12px;">
+            ${bucketChip('liquid')} ${bucketChip('investment')} ${bucketChip('locked')}
+            <span style="font-size:12px; color:#7f8c8d; margin-left:auto;">Net worth: <strong style="color:#2c3e50;">$${fmtMoneyLocale(nw.total)}</strong></span>
         </div>
         ${totalScheduled > 0 ? `
         <div style="background:#fff3cd; border:1px solid #ffc107; border-radius:6px; padding:12px; margin-bottom:12px;">
             <div style="font-size:12px; font-weight:600; margin-bottom:4px;">After Scheduled Activities:</div>
             <div style="display:flex; justify-content:space-between; font-size:13px;">
-                <span>Projected Balance:</span>
+                <span>Projected Emergency-Fund Balance:</span>
                 <strong style="color:${projectedBalance < emergencyFundTarget ? '#e74c3c' : '#27ae60'};">$${fmtMoneyLocale(projectedBalance)}</strong>
             </div>
             <div style="display:flex; justify-content:space-between; font-size:13px; margin-top:4px;">
@@ -684,11 +748,13 @@ function loadFinancialHealth() {
             <div>
                 <div style="font-weight:600; font-size:14px; color:${statusColor};">${statusText}</div>
                 <div style="font-size:12px; color:#7f8c8d;">
-                    ${projectedBalance >= emergencyFundTarget 
-                        ? 'You can afford scheduled activities comfortably' 
-                        : projectedBalance >= monthlyBurn * 3
-                            ? 'Below 6-month target but above 3 months'
-                            : 'Critical: Below 3-month emergency fund'}
+                    ${monthlyBurn <= 0
+                        ? 'Add commitments / variable spend in the Planner to set your target'
+                        : projectedBalance >= emergencyFundTarget
+                            ? 'Your emergency-eligible cash covers the full 6-month target'
+                            : projectedBalance >= monthlyBurn * 3
+                                ? 'Below 6-month target but above 3 months'
+                                : 'Critical: Below 3-month emergency fund'}
                 </div>
             </div>
         </div>
@@ -724,6 +790,7 @@ function showUpdateBalanceForm() {
             opt.textContent = `${bankName} — ${accountName}`;
             select.appendChild(opt);
         });
+        onBalanceAccountChange();  // reflect the first account's saved classification
     }
 }
 
@@ -733,10 +800,28 @@ function cancelBalanceForm() {
     document.getElementById('balanceAmount').value = '';
 }
 
+// Pre-fill the bucket / emergency fields from the selected account's saved
+// classification (or sensible defaults for a never-classified account).
+function onBalanceAccountChange() {
+    const name = document.getElementById('balanceAccountName').value;
+    const p = accountPurposeMap()[name] || { bucket: 'liquid', emergency: 1 };
+    document.getElementById('balanceBucket').value = p.bucket;
+    document.getElementById('balanceEmergency').checked = !!p.emergency;
+}
+
+// Picking a bucket suggests a default for "counts toward emergency fund"
+// (only liquid cash by default); the user can still override the checkbox.
+function onBalanceBucketChange() {
+    document.getElementById('balanceEmergency').checked =
+        document.getElementById('balanceBucket').value === 'liquid';
+}
+
 function saveBalance() {
     const accountName = document.getElementById('balanceAccountName').value.trim();
     const amount = toCents(document.getElementById('balanceAmount').value);
     const asOfDate = document.getElementById('balanceDate').value;
+    const bucket = document.getElementById('balanceBucket').value;
+    const emergency = document.getElementById('balanceEmergency').checked ? 1 : 0;
 
     if (!accountName || !amount || !asOfDate) {
         alert('Please fill in all fields');
@@ -744,9 +829,13 @@ function saveBalance() {
     }
 
     db.run('INSERT INTO bank_balances (account_name, balance, as_of_date) VALUES (?, ?, ?)', [accountName, amount, asOfDate]);
+    db.run(`INSERT INTO account_purpose (account_name, bucket, emergency) VALUES (?, ?, ?)
+            ON CONFLICT(account_name) DO UPDATE SET bucket = excluded.bucket, emergency = excluded.emergency`,
+        [accountName, bucket, emergency]);
     markDirty();
     cancelBalanceForm();
     loadFinancialHealth();
+    if (typeof loadOverview === 'function') loadOverview();
     showMessage('success', 'Bank balance updated');
 }
 

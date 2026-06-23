@@ -77,6 +77,27 @@ Go through `dbHelpers` in `js/core.js` (`safeRun`, `queryAll`, `queryFirst`,
 `queryValue`) rather than calling `db.run` / `db.exec` directly — they handle
 error reporting via `showMessage`.
 
+### Foreign keys are enforced
+
+`PRAGMA foreign_keys = ON` is set on every load (in `setupSchema`, `js/database.js`).
+The schema declares `ON DELETE CASCADE` for ownership edges
+(`banks→accounts→imports→transactions`, `categories→subcategories`,
+`accounts→bank_balances`/`account_purpose`, `planned_activities→activity_items`,
+`categories→budget`) and `ON DELETE SET NULL` for optional tags
+(`transactions`/`expense_commitments`/`transaction_rules`/`activity_items`
+category & subcategory refs). Consequences when writing code:
+
+- **Insert parents before children** (e.g. the import row before its
+  transactions) or the insert fails.
+- **Deleting a bank/account/category cascades** to its dependent rows — no
+  manual cleanup needed, but warn the user in the confirm dialog.
+- A one-shot, idempotent migration (`migrateToForeignKeys`, guarded by the
+  `migration_fk_constraints` settings flag) rebuilds legacy tables to add these
+  actions, cleans pre-existing orphans, and re-keys `bank_balances` /
+  `account_purpose` from `account_name` to `account_id`. Any new path that
+  loads a DB from bytes (import `.db`, Drive restore) must call `setupSchema()`
+  so an older file gets migrated and enforcement enabled.
+
 ### Input safety
 
 Always pass user-supplied strings through `escapeHtml()` (in `js/core.js`)

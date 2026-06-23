@@ -289,7 +289,7 @@ function updateAccountKeyword(accountId, keyword) {
 }
 
 function deleteAccountFromSettings(accountId, profileIdx) {
-    if (confirm('Delete this account? Existing transactions will be unaffected.')) {
+    if (confirm('Delete this account? This will also delete its imports, transactions, and recorded balances (cascade).')) {
         dbHelpers.safeRun('DELETE FROM accounts WHERE id = ?', [accountId], 'Delete account');
         markDirty();
         renderBankProfiles();
@@ -327,7 +327,7 @@ function updateProfile(idx, field, value) {
 }
 
 function deleteProfile(idx) {
-    if (confirm('Delete this bank profile? Existing accounts and transactions will be unaffected.')) {
+    if (confirm('Delete this bank profile? This will also delete its accounts, imports, transactions, and recorded balances (cascade).')) {
         const profile = bankProfiles[idx];
         if (profile.id) {
             dbHelpers.safeRun('DELETE FROM banks WHERE id = ?', [profile.id], 'Delete bank profile');
@@ -357,7 +357,7 @@ function addBankProfile() {
 }
 
 async function clearDatabase() {
-    if (confirm('Are you sure? This will delete ALL transactions, imports, and accounts!\n\nCategories, subcategories, bank profiles, and rules will be preserved.')) {
+    if (confirm('Are you sure? This will delete ALL transactions, imports, accounts, and recorded balances!\n\nCategories, subcategories, bank profiles, and rules will be preserved.')) {
         db.run('DELETE FROM transactions');
         db.run('DELETE FROM imports');
         db.run('DELETE FROM accounts');
@@ -382,6 +382,7 @@ async function handleDatabaseImport(e) {
 
     try {
         db = new SQL.Database(uint8Array);
+        setupSchema();  // migrate an older imported DB + enable FK enforcement
         await saveDatabaseToIndexedDB();
         await loadBankProfiles();
         await loadCategories();

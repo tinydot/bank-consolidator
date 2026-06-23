@@ -9,6 +9,8 @@ manual** backup to your own Google Drive if you want it.
 
 ## Features
 
+- **Overview** — home dashboard with emergency-fund progress + ETA (at your
+  recent savings pace), savings-rate trend, and balance-over-time chart.
 - **Multi-bank CSV import** — define a profile per bank (columns, date format,
   header rows) and import; bank/account is auto-detected from filename
   keywords where possible.
@@ -107,6 +109,7 @@ js/
   rules.js         Keyword → category rules
   budget.js        Monthly per-category limits
   planner.js       Emergency fund + commitments + activities
+  overview.js      Home dashboard: fund progress + ETA, savings rate, balance trend
   drive-sync.js    Optional manual Google Drive backup/restore (drive.file)
 ```
 

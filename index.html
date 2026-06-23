@@ -33,15 +33,36 @@
 
         <div class="tabs">
             <div class="tab-buttons">
-                <button class="tab-button active" onclick="switchTab('transactions')">💳 Transactions</button>
+                <button class="tab-button active" onclick="switchTab('overview')">🏠 Overview</button>
+                <button class="tab-button" onclick="switchTab('transactions')">💳 Transactions</button>
                 <button class="tab-button" onclick="switchTab('analytics')">📊 Analytics</button>
                 <button class="tab-button" onclick="switchTab('budget')">💰 Budget</button>
                 <button class="tab-button" onclick="switchTab('planner')">📋 Planner</button>
                 <button class="tab-button" onclick="switchTab('settings')">🔧 Settings</button>
             </div>
 
+            <!-- OVERVIEW TAB -->
+            <div id="overview-tab" class="tab-content active">
+                <div class="chart-container">
+                    <h3 style="margin-bottom: 20px;">🎯 Emergency Fund Progress</h3>
+                    <div id="overviewEmergencyFund"></div>
+                </div>
+
+                <div class="chart-container">
+                    <h3 style="margin-bottom: 20px;">💸 Savings Rate (Last 6 Months)</h3>
+                    <div id="overviewSavingsSummary"></div>
+                    <canvas id="overviewSavingsChart"></canvas>
+                </div>
+
+                <div class="chart-container">
+                    <h3 style="margin-bottom: 20px;">📈 Balance Trend</h3>
+                    <div id="overviewBalanceSummary"></div>
+                    <canvas id="overviewBalanceChart"></canvas>
+                </div>
+            </div>
+
             <!-- TRANSACTIONS TAB -->
-            <div id="transactions-tab" class="tab-content active">
+            <div id="transactions-tab" class="tab-content">
                 <div id="import-bar">
                     <label for="fileInput" class="compact-drop-zone" id="dropZone">
                         <span class="compact-drop-icon">📁</span>
@@ -670,6 +691,7 @@
     <script src="js/rules.js"></script>
     <script src="js/budget.js"></script>
     <script src="js/planner.js"></script>
+    <script src="js/overview.js"></script>
     <script src="js/drive-sync.js"></script>
 </body>
 </html>

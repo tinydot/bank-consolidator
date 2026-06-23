@@ -33,7 +33,7 @@ Script load order (fixed; do not reorder without checking call sites):
 
 ```
 core → database → import → dates → transactions → analytics
-     → categories → bank-profiles → rules → budget → planner → drive-sync
+     → categories → bank-profiles → rules → budget → planner → overview → drive-sync
 ```
 
 To bundle into a single offline HTML file, inline the 3 CDN libs, `styles.css`,

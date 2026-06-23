@@ -26,20 +26,9 @@ function overviewMonthlyBurn() {
     return monthlyCommitments + variableSpend;
 }
 
-// Total cash = latest recorded balance per account, summed. bank_balances
-// keeps every snapshot, so we take the most recent (by updated_at) per name.
-function overviewTotalBalance() {
-    const rows = dbHelpers.queryAll(`
-        SELECT account_name, balance
-        FROM bank_balances
-        ORDER BY updated_at ASC
-    `);
-    const latest = {};
-    rows.forEach(([account, balance]) => { latest[account] = balance; });
-    const accounts = Object.keys(latest);
-    const total = accounts.reduce((sum, name) => sum + latest[name], 0);
-    return { total, accountCount: accounts.length };
-}
+// Balance helpers (accountPurposeMap / emergencyEligibleTotal /
+// netWorthByBucket / BALANCE_BUCKETS) live in js/planner.js, which loads
+// first, so the Planner and Overview screens compute identically.
 
 // Per-month income/expenses for the last 6 months (oldest → newest), cents.
 function overviewMonthlySavings() {
@@ -84,7 +73,8 @@ function renderEmergencyFundProgress() {
 
     const monthlyBurn = overviewMonthlyBurn();
     const target = monthlyBurn * 6;
-    const { total: current, accountCount } = overviewTotalBalance();
+    const { total: current, count: eligibleCount } = emergencyEligibleTotal();
+    const nw = netWorthByBucket();
 
     if (target <= 0) {
         container.innerHTML = `<div style="color:#7f8c8d; font-size:13px;">
@@ -92,11 +82,12 @@ function renderEmergencyFundProgress() {
             <strong>Planner</strong> tab to calculate your emergency-fund target.</div>`;
         return;
     }
-    if (accountCount === 0) {
+    if (eligibleCount === 0) {
         container.innerHTML = `<div style="color:#7f8c8d; font-size:13px;">
             Your 6-month target is <strong>$${fmtMoneyLocale(target)}</strong>
-            ($${fmtMoney(monthlyBurn)}/mo × 6). Add your current balance via
-            <strong>Update Balance</strong> in the Planner tab to track progress.</div>`;
+            ($${fmtMoney(monthlyBurn)}/mo × 6). Record a balance and tick
+            <em>"Counts toward emergency fund"</em> via <strong>Update Balance</strong>
+            in the Planner tab to track progress.</div>`;
         return;
     }
 
@@ -149,9 +140,13 @@ function renderEmergencyFundProgress() {
             ${etaText}
         </div>
         <div style="font-size:11px; color:#95a5a6; margin-top:8px;">
-            Balance across ${accountCount} account${accountCount === 1 ? '' : 's'} ·
+            Emergency-eligible cash across ${eligibleCount} account${eligibleCount === 1 ? '' : 's'} ·
             target = $${fmtMoney(monthlyBurn)}/mo burn × 6
         </div>
+        ${(nw.investment > 0 || nw.locked > 0) ? `
+        <div style="font-size:11px; color:#95a5a6; margin-top:2px;">
+            Not counted: ${nw.investment > 0 ? `📈 $${fmtMoneyLocale(nw.investment)} investment` : ''}${(nw.investment > 0 && nw.locked > 0) ? ' · ' : ''}${nw.locked > 0 ? `🔒 $${fmtMoneyLocale(nw.locked)} locked` : ''} · net worth $${fmtMoneyLocale(nw.total)}
+        </div>` : ''}
     `;
 }
 
@@ -243,9 +238,11 @@ function renderBalanceTrend() {
         overviewBalanceChart = null;
     }
 
-    // Every snapshot in date order. We walk forward keeping the latest known
-    // balance per account, emitting the running total at each distinct date —
-    // a true net-worth line even when accounts are updated on different days.
+    // Every snapshot in date order. We carry each account's last-known balance
+    // forward and, at each distinct date, total it by bucket — a stacked
+    // net-worth-over-time view. An account only contributes from its own first
+    // reading onward, so a newly-tracked account appears as a new band rather
+    // than faking a jump in the existing total.
     const rows = dbHelpers.queryAll(`
         SELECT account_name, balance, as_of_date
         FROM bank_balances
@@ -259,27 +256,42 @@ function renderBalanceTrend() {
         return;
     }
 
+    const purpose = accountPurposeMap();
+    const dates = [...new Set(rows.map(r => r[2]))];  // sorted (rows are date-ordered)
     const known = {};
-    const byDate = new Map();  // as_of_date → running total
-    rows.forEach(([account, balance, asOf]) => {
-        known[account] = balance;
-        const total = Object.values(known).reduce((a, b) => a + b, 0);
-        byDate.set(asOf, total);  // later row on same date overwrites → last wins
+    let ri = 0;
+    const series = { liquid: [], investment: [], locked: [] };
+    const totalsByDate = [];
+
+    dates.forEach(date => {
+        while (ri < rows.length && rows[ri][2] <= date) {
+            known[rows[ri][0]] = rows[ri][1];  // later row on same date wins
+            ri++;
+        }
+        const sums = { liquid: 0, investment: 0, locked: 0 };
+        Object.keys(known).forEach(name => {
+            sums[(purpose[name] || { bucket: 'liquid' }).bucket] += known[name];
+        });
+        series.liquid.push(fromCents(sums.liquid));
+        series.investment.push(fromCents(sums.investment));
+        series.locked.push(fromCents(sums.locked));
+        totalsByDate.push(sums.liquid + sums.investment + sums.locked);
     });
 
-    const dates = [...byDate.keys()];
-    const totals = dates.map(d => byDate.get(d));
-
-    const first = totals[0];
-    const last = totals[totals.length - 1];
-    const change = last - first;
+    const last = totalsByDate[totalsByDate.length - 1];
+    const change = last - totalsByDate[0];
     const changeColor = change >= 0 ? '#27ae60' : '#e74c3c';
+    const nw = netWorthByBucket();
+
+    const bucketChip = (key) => nw[key] > 0
+        ? `<span style="font-size:12px; color:#2c3e50;">${BALANCE_BUCKETS[key].icon} ${BALANCE_BUCKETS[key].label}: <strong>$${fmtMoneyLocale(nw[key])}</strong></span>`
+        : '';
 
     summary.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px;">
             <div>
-                <div style="font-size:11px; color:#7f8c8d; margin-bottom:2px;">CURRENT TOTAL</div>
-                <div style="font-size:24px; font-weight:700; color:#2c3e50;">$${fmtMoneyLocale(last)}</div>
+                <div style="font-size:11px; color:#7f8c8d; margin-bottom:2px;">CURRENT NET WORTH</div>
+                <div style="font-size:24px; font-weight:700; color:#2c3e50;">$${fmtMoneyLocale(nw.total)}</div>
             </div>
             ${dates.length > 1 ? `
             <div style="text-align:right;">
@@ -287,35 +299,43 @@ function renderBalanceTrend() {
                 <div style="font-size:18px; font-weight:700; color:${changeColor};">${change >= 0 ? '+' : '−'}$${fmtMoneyLocale(change)}</div>
             </div>` : ''}
         </div>
+        <div style="display:flex; flex-wrap:wrap; gap:14px; margin-bottom:16px;">
+            ${bucketChip('liquid')} ${bucketChip('investment')} ${bucketChip('locked')}
+        </div>
     `;
+
+    // One stacked area per bucket; skip buckets that are empty throughout.
+    const datasets = ['liquid', 'investment', 'locked']
+        .filter(key => series[key].some(v => v !== 0))
+        .map(key => ({
+            label: `${BALANCE_BUCKETS[key].icon} ${BALANCE_BUCKETS[key].label}`,
+            data: series[key],
+            borderColor: BALANCE_BUCKETS[key].color,
+            backgroundColor: BALANCE_BUCKETS[key].color + '55',
+            fill: true,
+            tension: 0.2,
+            pointRadius: 3,
+        }));
 
     overviewBalanceChart = new Chart(canvas, {
         type: 'line',
-        data: {
-            labels: dates,
-            datasets: [{
-                label: 'Total balance',
-                data: totals.map(fromCents),
-                borderColor: '#3498db',
-                backgroundColor: '#3498db22',
-                fill: true,
-                tension: 0.2,
-                pointRadius: 3,
-            }],
-        },
+        data: { labels: dates, datasets },
         options: {
             responsive: true,
+            interaction: { mode: 'index', intersect: false },
             plugins: {
-                legend: { display: false },
+                legend: { position: 'bottom' },
                 tooltip: {
                     callbacks: {
-                        label: ctx => ` $${ctx.parsed.y.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                        label: ctx => ` ${ctx.dataset.label}: $${ctx.parsed.y.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
                     },
                 },
             },
             scales: {
+                x: { stacked: true },
                 y: {
-                    beginAtZero: false,
+                    stacked: true,
+                    beginAtZero: true,
                     ticks: { callback: val => '$' + val.toLocaleString() },
                 },
             },

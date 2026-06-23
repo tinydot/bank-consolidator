@@ -285,6 +285,18 @@ function createTables() {
         )
     `);
 
+    // Per-account classification for the Overview/Planner balance views.
+    //   bucket    : liquid | investment | locked  (drives net-worth grouping)
+    //   emergency : 1 if this account counts toward the emergency-fund target
+    // Unclassified accounts default to liquid + counted (see accountPurposeMap).
+    db.run(`
+        CREATE TABLE IF NOT EXISTS account_purpose (
+            account_name TEXT PRIMARY KEY,
+            bucket TEXT NOT NULL DEFAULT 'liquid',
+            emergency INTEGER NOT NULL DEFAULT 1
+        )
+    `);
+
     db.run(`CREATE INDEX IF NOT EXISTS idx_activity_items_activity ON activity_items(activity_id)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_planned_activities_month ON planned_activities(scheduled_month)`);
 

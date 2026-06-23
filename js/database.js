@@ -82,8 +82,11 @@ function migrateMoneyToCents() {
     db.run(`UPDATE activity_items       SET actual_cost    = CAST(ROUND(actual_cost    * 100) AS INTEGER) WHERE actual_cost IS NOT NULL`);
     db.run(`UPDATE bank_balances        SET balance        = CAST(ROUND(balance        * 100) AS INTEGER)`);
 
-    // Text-stored money values in key/value tables.
-    for (const [table, key] of [['settings', 'monthly_expected_income'], ['planner_settings', 'variable_spend']]) {
+    // Text-stored money values in key/value tables. (The old
+    // planner_settings 'variable_spend' row is no longer used — the emergency
+    // fund derives its baseline from the Budget tab — so it's purged in
+    // setupSchema rather than converted here.)
+    for (const [table, key] of [['settings', 'monthly_expected_income']]) {
         try {
             const r = db.exec(`SELECT value FROM ${table} WHERE key = ?`, [key]);
             if (r.length > 0 && r[0].values.length > 0) {
@@ -476,6 +479,10 @@ function createTables() {
     // Add interval-recurrence columns (every-N-months expenses: aircon, dental…)
     try { db.run('ALTER TABLE expense_commitments ADD COLUMN interval_months INTEGER'); } catch(e) {}
     try { db.run('ALTER TABLE expense_commitments ADD COLUMN anchor_date TEXT'); } catch(e) {}
+
+    // Purge the retired manual variable-spend setting (the emergency-fund
+    // baseline now comes from the Budget tab). Idempotent — a no-op once gone.
+    try { db.run(`DELETE FROM planner_settings WHERE key = 'variable_spend'`); } catch(e) {}
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

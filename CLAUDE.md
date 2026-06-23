@@ -47,6 +47,16 @@ any one of them:
    actually falls in the next 6 months (`emergencyFundTargetTotal()`), which is
    what makes it more accurate than `monthly run-rate × 6`.
 
+   To avoid **double-counting**, a `monthly` commitment tagged to a budgeted
+   category is netted against that category's limit: the budget contributes
+   `max(limit − that category's monthly commitments, 0)` per month
+   (`netBudgetBaselineForMonth()`), so steady spend is counted once at the
+   larger of the two figures. The commitment shows as its own row; the budget
+   only tops it up if the limit is higher. Lumpy commitments (`term`,
+   `interval`, `workday`, `nonworkday`) never overlap a flat budget, so they
+   always add in full. The Planner table, Financial Health card, Overview, and
+   exported report all reconcile to the same netted total.
+
 The **Overview** dashboard and the exported Analytics report both read the same
 `budgetMonthlyTotal()` / `emergencyFundTargetTotal()` helpers, so every screen
 agrees on the target. There is **no** separate manually-typed "variable spend"

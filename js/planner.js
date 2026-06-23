@@ -667,11 +667,17 @@ function netWorthByBucket() {
 // show exactly how the emergency-fund figure is made up.
 function latestBalanceDetails() {
     const purpose = accountPurposeMap();
+
+    // account_name → bank name, to label each row "Bank — Account".
+    const bankByAccount = {};
+    dbHelpers.queryAll(`SELECT a.account_name, b.name FROM accounts a JOIN banks b ON a.bank_id = b.id`)
+        .forEach(([account, bank]) => { if (!bankByAccount[account]) bankByAccount[account] = bank; });
+
     const map = {};
     dbHelpers.queryAll(`SELECT account_name, balance, as_of_date FROM bank_balances ORDER BY updated_at ASC`)
         .forEach(([account, balance, asOf]) => { map[account] = { account, balance, asOf }; });
     return Object.values(map)
-        .map(r => ({ ...r, ...purposeFor(purpose, r.account) }))
+        .map(r => ({ ...r, bank: bankByAccount[r.account] || '', ...purposeFor(purpose, r.account) }))
         .sort((a, b) => (b.emergency - a.emergency) || (b.balance - a.balance));
 }
 
@@ -736,7 +742,7 @@ function loadFinancialHealth() {
             : '<span style="color:#b0b8bf;">— excluded</span>';
         return `
             <tr style="border-top:1px solid #eef1f4; ${d.emergency ? 'background:#27ae6008;' : ''}">
-                <td style="padding:7px 8px; font-size:13px; color:#2c3e50;">${escapeHtml(d.account)}</td>
+                <td style="padding:7px 8px; font-size:13px; color:#2c3e50;">${d.bank ? escapeHtml(d.bank) + ' — ' : ''}${escapeHtml(d.account)}</td>
                 <td style="padding:7px 8px; font-size:12px; color:#7f8c8d; white-space:nowrap;">${b.icon} ${b.label}</td>
                 <td style="padding:7px 8px; font-size:12px; white-space:nowrap;">${counted}</td>
                 <td style="padding:7px 8px; font-size:13px; font-weight:600; color:#2c3e50; text-align:right; white-space:nowrap;">$${fmtMoneyLocale(d.balance)}</td>

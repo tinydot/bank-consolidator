@@ -91,6 +91,7 @@ Script load order (fixed; do not reorder without checking call sites):
 ```
 core → database → import → dates → transactions → analytics
      → categories → bank-profiles → rules → budget → planner → overview → drive-sync
+     → ask-ai
 ```
 
 To bundle into a single offline HTML file, inline the 3 CDN libs, `styles.css`,
@@ -184,11 +185,25 @@ History tab.
 Do **not** add automatic deduplication (hash-based or otherwise) without
 explicit user request.
 
-### No server-side / cross-device data storage (with one opt-in exception)
+### No server-side / cross-device data storage (with opt-in exceptions)
 The app is **client-side only** (IndexedDB + localStorage). Server-side
 storage we operate (Firebase, Supabase, Cloudflare D1, etc.) was considered and
 rejected. Do **not** add authentication, a backend, or automatic cloud sync
 without explicit user request.
+
+There are two opt-in exceptions that send data off-device, both user-initiated
+and both BYO-credential (no backend we run): the Google Drive backup below, and
+the **Ask AI** chat in `js/ask-ai.js` (added at the user's request). Ask AI is
+the only feature that sends transaction *contents* to a third party: when the
+user presses Send, it calls Anthropic's API (`api.anthropic.com`) with the live
+DB schema and gives Claude a single read-only `run_sql` tool, runs the SELECTs
+locally via `dbHelpers`, and feeds rows back until Claude answers. The API key
+is user-supplied, stored only in localStorage (`askAi_apiKey`), and the chat
+history lives in memory only. **Read-only is load-bearing:** `askAiIsReadOnly`
+rejects anything but a single SELECT/WITH statement, and every query runs inside
+a `SAVEPOINT … ROLLBACK` so the AI can never mutate the DB — keep both guards if
+you touch that path. The panel works on `file://` too (unlike Drive). Do **not**
+make it send data automatically or without an explicit Send action.
 
 The sole exception is the **optional, manual Google Drive backup** in
 `js/drive-sync.js` (added at the user's request). There is no backend we run:

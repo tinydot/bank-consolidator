@@ -566,3 +566,90 @@ tr:hover {
     text-decoration: underline;
 }
 
+
+/* ── Ask AI ─────────────────────────────────────────────────────────────── */
+.ai-status {
+    color: #7f8c8d;
+    font-size: 13px;
+    margin: 0 0 8px;
+}
+
+.ai-transcript {
+    border: 1px solid #e1e4e8;
+    border-radius: 8px;
+    background: #fafbfc;
+    padding: 14px;
+    min-height: 160px;
+    max-height: 50vh;
+    overflow-y: auto;
+}
+
+.ai-bubble {
+    padding: 10px 14px;
+    border-radius: 12px;
+    margin-bottom: 10px;
+    max-width: 85%;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    line-height: 1.45;
+    font-size: 14px;
+}
+
+.ai-user {
+    background: #3498db;
+    color: #fff;
+    margin-left: auto;
+    border-bottom-right-radius: 4px;
+}
+
+.ai-assistant {
+    background: #fff;
+    color: #2c3e50;
+    border: 1px solid #e1e4e8;
+    border-bottom-left-radius: 4px;
+}
+
+.ai-query {
+    margin: 0 0 10px;
+    font-size: 12px;
+    color: #7f8c8d;
+}
+
+.ai-query > summary {
+    cursor: pointer;
+    color: #2980b9;
+}
+
+.ai-query pre {
+    background: #2c3e50;
+    color: #ecf0f1;
+    padding: 10px 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 6px 0 0;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.ai-input-row {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+    margin-top: 12px;
+}
+
+.ai-input-row textarea {
+    flex: 1;
+    resize: vertical;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 10px 12px;
+}
+
+.ai-input-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    justify-content: flex-start;
+}

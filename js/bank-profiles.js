@@ -429,6 +429,10 @@ function switchTab(tab) {
         loadMonthlyIncomeSettings();
     }
 
+    if (tab === 'ask') {
+        askAiRenderState();
+    }
+
     if (tab === 'transactions') {
         populateManualAccountSelect();
     }

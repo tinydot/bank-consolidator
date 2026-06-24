@@ -202,8 +202,14 @@ is user-supplied, stored only in localStorage (`askAi_apiKey`), and the chat
 history lives in memory only. **Read-only is load-bearing:** `askAiIsReadOnly`
 rejects anything but a single SELECT/WITH statement, and every query runs inside
 a `SAVEPOINT … ROLLBACK` so the AI can never mutate the DB — keep both guards if
-you touch that path. The panel works on `file://` too (unlike Drive). Do **not**
-make it send data automatically or without an explicit Send action.
+you touch that path. A **privacy gate** (`askAiNeedsConfirmation`) sits between
+running a query and sending its rows back: aggregate results (a single row, no
+free-text columns) go automatically, but row-level results (multiple rows, or a
+`description`/`note`/`account_number`-style column) prompt the user with
+`confirm()` first — the query already ran in the rolled-back savepoint, so a
+denial keeps the rows on-device and returns an error tool_result telling Claude
+to use an aggregate instead. The panel works on `file://` too (unlike Drive).
+Do **not** make it send data automatically or without an explicit Send action.
 
 The sole exception is the **optional, manual Google Drive backup** in
 `js/drive-sync.js` (added at the user's request). There is no backend we run:

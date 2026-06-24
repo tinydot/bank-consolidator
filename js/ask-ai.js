@@ -116,6 +116,43 @@ function askAiRunQuery(sql) {
     }
 }
 
+// ── Privacy gate: confirm before row-level data leaves the device ───────────
+
+// Columns whose contents are free-text / identifying rather than aggregates.
+function askAiHasSensitiveColumn(columns) {
+    return (columns || []).some(c =>
+        /desc|note|memo|merchant|payee|narrat|remark|reference|account_number/i.test(c));
+}
+
+// A result is auto-sent only when it's a genuine summary: a single row with no
+// free-text columns (the classic SELECT SUM(...)/COUNT(...) shape). Anything
+// that ships multiple rows, or any raw text column, asks the user first.
+function askAiNeedsConfirmation(out) {
+    const n = out.rows ? out.rows.length : 0;
+    if (n === 0) return false;                              // nothing to share
+    if (askAiHasSensitiveColumn(out.columns)) return true;  // raw text leaving
+    return n > 1;                                            // >1 raw row = not an aggregate
+}
+
+function askAiConfirmText(sql, out) {
+    const n = out.rows.length;
+    const more = out.truncated ? ` (capped at ${AI_MAX_ROWS})` : '';
+    return [
+        'Send this data to Anthropic?',
+        '',
+        'To answer your question, Claude wants to read row-level data from your',
+        'database — not just a total. Approve sending it to api.anthropic.com?',
+        '',
+        `Rows: ${n}${more}`,
+        `Columns: ${(out.columns || []).join(', ')}`,
+        '',
+        'Query:',
+        sql,
+        '',
+        'OK = send these rows.   Cancel = keep them on this device.'
+    ].join('\n');
+}
+
 const ASK_AI_TOOL = {
     name: 'run_sql',
     description:
@@ -167,6 +204,13 @@ function askAiSystemPrompt() {
         '  emergency fund. "Can I afford" should lean on liquid balances.',
         '- budget.monthly_limit is the per-category monthly cap (cents).',
         '  expense_commitments are recurring/lumpy future costs (cents).',
+        '',
+        'PREFER AGGREGATE QUERIES (SUM/COUNT/AVG, returning a single summary row)',
+        'over selecting raw rows. Row-level queries (multiple rows, or columns like',
+        'description/note/account_number) require the user to approve sharing the',
+        'data each time, so only request raw rows when a total genuinely cannot',
+        'answer the question. If the user declines to share rows, fall back to an',
+        'aggregate query or answer with what you already have.',
         '',
         'Query as many times as you need, then answer in plain English with short',
         'figures. Keep answers tight — a few sentences, not an essay. If the database',
@@ -237,17 +281,7 @@ async function askAiSend() {
                 if (text) askAiSetBubble(thinking, text + '\n\n…checking your data');
                 else askAiSetBubble(thinking, '…checking your data');
 
-                const toolResults = toolUses.map(tu => {
-                    const sql = tu.input && tu.input.query;
-                    askAiAppendQueryTrace(sql);
-                    const out = askAiRunQuery(sql);
-                    return {
-                        type: 'tool_result',
-                        tool_use_id: tu.id,
-                        content: JSON.stringify(out),
-                        is_error: !!out.error
-                    };
-                });
+                const toolResults = toolUses.map(askAiExecuteToolUse);
                 askAiMessages.push({ role: 'user', content: toolResults });
                 continue;   // let the model read the rows and continue
             }
@@ -263,6 +297,37 @@ async function askAiSend() {
         askAiBusy = false;
         askAiSetBusy(false);
     }
+}
+
+// Runs one tool call locally and returns the tool_result block. Row-level
+// results pass through the privacy gate: nothing has left the device yet (the
+// query ran in a rolled-back savepoint), so a denial keeps the rows local.
+function askAiExecuteToolUse(tu) {
+    const sql = tu.input && tu.input.query;
+    askAiAppendQueryTrace(sql);
+    const out = askAiRunQuery(sql);
+
+    if (!out.error && askAiNeedsConfirmation(out)) {
+        if (!confirm(askAiConfirmText(sql, out))) {
+            askAiAppendNote(`🚫 You declined to share ${out.rows.length} row(s) for that query.`);
+            return {
+                type: 'tool_result',
+                tool_use_id: tu.id,
+                content: JSON.stringify({
+                    error: 'The user declined to share these rows. Do not retry the same ' +
+                        'query — use an aggregate query (SUM/COUNT/AVG) instead, or answer ' +
+                        'with the data you already have.'
+                }),
+                is_error: true
+            };
+        }
+    }
+    return {
+        type: 'tool_result',
+        tool_use_id: tu.id,
+        content: JSON.stringify(out),
+        is_error: !!out.error
+    };
 }
 
 function askAiClear() {
@@ -302,6 +367,16 @@ function askAiAppendQueryTrace(sql) {
     det.appendChild(sum);
     det.appendChild(pre);
     log.appendChild(det);
+    log.scrollTop = log.scrollHeight;
+}
+
+function askAiAppendNote(text) {
+    const log = document.getElementById('askAiTranscript');
+    if (!log) return;
+    const div = document.createElement('div');
+    div.className = 'ai-note';
+    div.textContent = text;
+    log.appendChild(div);
     log.scrollTop = log.scrollHeight;
 }
 

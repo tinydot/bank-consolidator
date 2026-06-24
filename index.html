@@ -38,6 +38,7 @@
                 <button class="tab-button" onclick="switchTab('analytics')">📊 Analytics</button>
                 <button class="tab-button" onclick="switchTab('budget')">💰 Budget</button>
                 <button class="tab-button" onclick="switchTab('planner')">📋 Planner</button>
+                <button class="tab-button" onclick="switchTab('ask')">🤖 Ask AI</button>
                 <button class="tab-button" onclick="switchTab('settings')">🔧 Settings</button>
             </div>
 
@@ -474,6 +475,70 @@
             </div>
 
             <!-- SETTINGS TAB -->
+            <!-- ASK AI TAB -->
+            <div id="ask-tab" class="tab-content">
+                <div class="chart-container">
+                    <h3 style="margin-bottom: 6px;">🤖 Ask AI about your money</h3>
+                    <p class="settings-hint" style="margin-top:0;">
+                        Ask things like <em>"can I afford a $400 desktop speaker?"</em> or
+                        <em>"what's my coffee habit costing me each month?"</em>. Claude reads
+                        your local database (read-only) to answer.
+                    </p>
+
+                    <!-- Setup -->
+                    <div id="askAiSetup">
+                        <p class="ai-status" id="askAiStatus"></p>
+                        <details class="drive-advanced" id="askAiKeyDetails">
+                            <summary>Set up — add your Anthropic API key</summary>
+                            <div style="background:#fff8e1; padding:12px; border-radius:8px; margin-top:10px; border-left:4px solid #f0ad4e;">
+                                <strong>⚠️ Your data leaves the device for this feature.</strong>
+                                To answer questions, the app sends relevant rows from your local
+                                database to Anthropic's API. The rest of the app stays fully offline.
+                                Your key is stored only in this browser and sent only to
+                                <code>api.anthropic.com</code>.
+                            </div>
+                            <div class="form-group" style="margin-top:12px;">
+                                <label for="askAiApiKey">Anthropic API key</label>
+                                <input type="password" id="askAiApiKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+                                <p class="settings-hint" style="margin-top:6px;">
+                                    Get one from the
+                                    <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Anthropic Console</a>.
+                                    Stored only in this browser (localStorage).
+                                </p>
+                            </div>
+                            <div class="form-group" style="margin-top:8px;">
+                                <label for="askAiModelSelect">Model</label>
+                                <select id="askAiModelSelect" style="width:auto;">
+                                    <option value="claude-opus-4-8">Opus 4.8 — deepest reasoning (recommended)</option>
+                                    <option value="claude-haiku-4-5-20251001">Haiku 4.5 — faster &amp; cheaper</option>
+                                </select>
+                            </div>
+                            <div class="button-group" style="margin-top:10px;">
+                                <button onclick="askAiSaveSettings()">Save</button>
+                                <button class="secondary-btn" onclick="askAiForget()">Forget key</button>
+                            </div>
+                        </details>
+                    </div>
+
+                    <!-- Chat -->
+                    <div id="askAiChat" style="display:none; margin-top:16px;">
+                        <div id="askAiTranscript" class="ai-transcript"></div>
+                        <div class="ai-input-row">
+                            <textarea id="askAiInput" rows="2" placeholder="Ask about your finances… (Enter to send, Shift+Enter for newline)" onkeydown="askAiHandleKey(event)"></textarea>
+                            <div class="ai-input-buttons">
+                                <button id="askAiSendBtn" onclick="askAiSend()">Ask</button>
+                                <button class="secondary-btn" onclick="askAiClear()">Clear</button>
+                            </div>
+                        </div>
+                        <p class="settings-hint" style="margin-top:8px;">
+                            Read-only: the AI can look at your data but can never change it.
+                            Aggregate lookups (totals/counts) are sent automatically; anything
+                            row-level (individual transactions) asks you to approve first.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
             <div id="settings-tab" class="tab-content">
 
                 <!-- Analytics -->
@@ -715,5 +780,6 @@
     <script src="js/planner.js"></script>
     <script src="js/overview.js"></script>
     <script src="js/drive-sync.js"></script>
+    <script src="js/ask-ai.js"></script>
 </body>
 </html>

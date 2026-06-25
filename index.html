@@ -527,13 +527,16 @@
                             <textarea id="askAiInput" rows="2" placeholder="Ask about your finances… (Enter to send, Shift+Enter for newline)" onkeydown="askAiHandleKey(event)"></textarea>
                             <div class="ai-input-buttons">
                                 <button id="askAiSendBtn" onclick="askAiSend()">Ask</button>
-                                <button class="secondary-btn" onclick="askAiClear()">Clear</button>
+                                <button class="secondary-btn" onclick="askAiClear()">Delete history</button>
                             </div>
                         </div>
                         <p class="settings-hint" style="margin-top:8px;">
                             Read-only: the AI can look at your data but can never change it.
                             Aggregate lookups (totals/counts) are sent automatically; anything
                             row-level (individual transactions) asks you to approve first.
+                            This conversation is saved with your database, so it persists across
+                            reloads and is included in your local .db export and Google Drive
+                            backup. Use <strong>Delete history</strong> to wipe it.
                         </p>
                     </div>
                 </div>

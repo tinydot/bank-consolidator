@@ -17,6 +17,7 @@ async function init() {
     populateManualAccountSelect();
     setupEventListeners();
     driveSyncInit();
+    askAiLoadHistory();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -383,6 +384,20 @@ function createTables() {
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT
+        )
+    `);
+
+    // Ask AI conversation history. Persisted here (rather than in localStorage)
+    // so it rides along in the single exported DB blob — i.e. it is included in
+    // both the local .db download/import and the Google Drive backup/restore.
+    //   role    : the Anthropic message role ('user' | 'assistant')
+    //   content : the full message object, JSON-encoded (string or block array)
+    db.run(`
+        CREATE TABLE IF NOT EXISTS ask_ai_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     `);
 

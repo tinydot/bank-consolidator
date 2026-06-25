@@ -303,6 +303,7 @@ async function driveRestore() {
         await updateAnalytics();
         await loadBudget();
         await loadPlanner();
+        askAiLoadHistory();
 
         localStorage.setItem(DS_DRIVE_MODIFIED, file.modifiedTime || '');
         localStorage.setItem(DS_LAST_SYNCED, new Date().toISOString());

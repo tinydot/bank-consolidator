@@ -45,13 +45,13 @@ function applyTransactionRules(description, defaultCategory) {
     const fallbackCategory = defaultCategory || 'Uncategorized';
 
     if (!description) {
-        return { shouldIgnore: false, category: fallbackCategory, subcategoryId: null, categorized: false };
+        return { shouldIgnore: false, category: fallbackCategory, subcategoryId: null, categorized: false, ruleId: null, ignoreRuleId: null };
     }
 
     try {
         // Get all enabled rules ordered by priority (higher first)
         const rulesResult = db.exec(`
-            SELECT tr.keyword, tr.action, c.name as category_name, tr.case_sensitive, tr.subcategory_value
+            SELECT tr.keyword, tr.action, c.name as category_name, tr.case_sensitive, tr.subcategory_value, tr.id
             FROM transaction_rules tr
             LEFT JOIN categories c ON tr.category_value = c.id
             WHERE tr.enabled = 1
@@ -59,12 +59,14 @@ function applyTransactionRules(description, defaultCategory) {
         `);
 
         if (!rulesResult.length || !rulesResult[0].values.length) {
-            return { shouldIgnore: false, category: fallbackCategory, subcategoryId: null, categorized: false };
+            return { shouldIgnore: false, category: fallbackCategory, subcategoryId: null, categorized: false, ruleId: null, ignoreRuleId: null };
         }
 
         let shouldIgnore = false;
         let category = fallbackCategory;
         let subcategoryId = null;
+        let ruleId = null;          // id of the categorize rule that won
+        let ignoreRuleId = null;    // id of the ignore rule that won
 
         // Apply rules in priority order (first match wins for each action type)
         let ignoreRuleMatched = false;
@@ -76,6 +78,7 @@ function applyTransactionRules(description, defaultCategory) {
             const categoryValue = rule[2];
             const caseSensitive = rule[3];
             const subcategoryValue = rule[4];
+            const id = rule[5];
 
             // Word-boundary match: keyword must not be a substring of a larger word/phrase
             // Uses explicit boundary check instead of lookbehind for Safari < 16.4 compatibility
@@ -87,12 +90,14 @@ function applyTransactionRules(description, defaultCategory) {
                 if (action === 'ignore' && !ignoreRuleMatched) {
                     shouldIgnore = true;
                     ignoreRuleMatched = true;
+                    ignoreRuleId = id;
                 } else if (action === 'categorize' && !categoryRuleMatched && categoryValue) {
                     category = categoryValue;
                     // The matched rule may also assign a subcategory (id of a row that
                     // belongs to the same category — the two are set together in the form).
                     subcategoryId = subcategoryValue != null ? subcategoryValue : null;
                     categoryRuleMatched = true;
+                    ruleId = id;
                 }
 
                 // If both types of rules matched, we can stop
@@ -102,10 +107,10 @@ function applyTransactionRules(description, defaultCategory) {
             }
         }
 
-        return { shouldIgnore, category, subcategoryId, categorized: categoryRuleMatched };
+        return { shouldIgnore, category, subcategoryId, categorized: categoryRuleMatched, ruleId, ignoreRuleId };
     } catch (e) {
         console.error('Error applying rules:', e);
-        return { shouldIgnore: false, category: fallbackCategory, subcategoryId: null, categorized: false };
+        return { shouldIgnore: false, category: fallbackCategory, subcategoryId: null, categorized: false, ruleId: null, ignoreRuleId: null };
     }
 }
 

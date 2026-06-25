@@ -42,10 +42,41 @@ function displayRules(result) {
         }
     });
 
+    // Detect duplicate keywords. Within an action, only the highest-priority
+    // (then lowest-id) rule for a given keyword ever fires; the rest are
+    // "shadowed" — redundant rules the user can safely delete. Keyword match is
+    // case-insensitive here, which is a good-enough heuristic for surfacing dups.
+    const keyCounts = {};    // lkeyword -> total rules using it (any action)
+    const winnerByKey = {};  // `${action}|${lkeyword}` -> { id, priority } that wins
+    rows.forEach(row => {
+        const id = row[0], keyword = row[2], action = row[3], priority = row[7];
+        const lk = (keyword || '').trim().toLowerCase();
+        keyCounts[lk] = (keyCounts[lk] || 0) + 1;
+        const wk = `${action}|${lk}`;
+        const cur = winnerByKey[wk];
+        if (!cur || priority > cur.priority || (priority === cur.priority && id < cur.id)) {
+            winnerByKey[wk] = { id, priority };
+        }
+    });
+    let shadowedCount = 0;
+    rows.forEach(row => {
+        const id = row[0], keyword = row[2], action = row[3];
+        const lk = (keyword || '').trim().toLowerCase();
+        if ((keyCounts[lk] || 1) > 1) {
+            const w = winnerByKey[`${action}|${lk}`];
+            if (w && w.id !== id) shadowedCount++;
+        }
+    });
+
     const frag = document.createDocumentFragment();
 
     function makeRuleTag(rule) {
-        const { id, name, keyword, caseSensitive, priority, subcategoryName } = rule;
+        const { id, name, keyword, action, caseSensitive, priority, subcategoryName } = rule;
+        const lk = (keyword || '').trim().toLowerCase();
+        const dupCount = keyCounts[lk] || 1;
+        const isDuplicate = dupCount > 1;
+        const winner = winnerByKey[`${action}|${lk}`];
+        const isShadowed = isDuplicate && winner && winner.id !== id;
         const tag = document.createElement('div');
         tag.style.cssText = 'display:inline-flex; align-items:center; gap:6px; background:white; border:1px solid #dee2e6; border-radius:16px; padding:6px 10px 6px 12px; margin:4px 4px 4px 0; font-size:13px; transition:all .15s;';
         tag.onmouseenter = () => tag.style.boxShadow = '0 2px 6px rgba(0,0,0,0.1)';
@@ -78,6 +109,23 @@ function displayRules(result) {
             priTag.style.cssText = 'font-size:10px; color:#95a5a6; font-weight:600;';
             priTag.textContent = `p${priority}`;
             content.appendChild(priTag);
+        }
+
+        if (isDuplicate) {
+            const dupTag = document.createElement('span');
+            dupTag.style.cssText = 'font-size:11px; background:#e67e22; color:white; padding:1px 5px; border-radius:8px; font-weight:700; cursor:help;';
+            dupTag.textContent = '⚠';
+            dupTag.title = isShadowed
+                ? `Shadowed: "${keyword}" is already handled by a higher-priority rule (p${winner.priority}), so this rule never applies. Safe to delete.`
+                : `${dupCount} rules share the keyword "${keyword}". This one wins; the duplicates are redundant.`;
+            content.appendChild(dupTag);
+        }
+
+        // Visually mute rules that can never fire so they stand out for deletion.
+        if (isShadowed) {
+            tag.style.borderColor = '#e67e22';
+            tag.style.borderStyle = 'dashed';
+            tag.style.opacity = '0.65';
         }
 
         tag.appendChild(content);
@@ -154,6 +202,12 @@ function displayRules(result) {
     const summary = document.createElement('div');
     summary.style.cssText = 'font-size:12px; color:#95a5a6; margin-top:8px; padding:0 4px;';
     summary.textContent = `${total} rule${total !== 1 ? 's' : ''} total`;
+    if (shadowedCount > 0) {
+        const warn = document.createElement('span');
+        warn.style.cssText = 'color:#e67e22; font-weight:600;';
+        warn.textContent = ` · ⚠ ${shadowedCount} shadowed (redundant — safe to delete)`;
+        summary.appendChild(warn);
+    }
     frag.appendChild(summary);
 
     container.innerHTML = '';
@@ -518,9 +572,18 @@ function renderFrequentTransactions() {
 
         const btn = document.createElement('button');
         btn.style.cssText = 'padding:5px 10px; font-size:12px; white-space:nowrap;';
-        btn.textContent = ruleResult.categorized ? '✎ Refine rule' : '+ Create rule';
         const domId = dominant ? dominant.id : null;
-        btn.addEventListener('click', () => createRuleFromMerchant(g.key, domId));
+        if (ruleResult.categorized && ruleResult.ruleId != null) {
+            // A rule already tags this merchant — edit that exact rule (e.g. to add
+            // the subcategory) rather than creating a duplicate that loses on priority.
+            const matchedId = ruleResult.ruleId;
+            btn.textContent = '✎ Refine rule';
+            btn.title = 'Edit the rule that currently matches this merchant';
+            btn.addEventListener('click', () => editRule(matchedId));
+        } else {
+            btn.textContent = '+ Create rule';
+            btn.addEventListener('click', () => createRuleFromMerchant(g.key, domId));
+        }
 
         card.appendChild(left);
         card.appendChild(pill);

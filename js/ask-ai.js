@@ -34,8 +34,12 @@ const AI_DEFAULT_MODEL = 'claude-opus-4-8';
 const AI_MAX_TOOL_ROUNDS = 8;   // safety cap on the agentic query loop
 const AI_MAX_ROWS = 500;        // truncate tool results so we don't blow context
 
-// In-memory conversation so follow-up questions ("…and the habit?") keep
-// context. Never persisted — cleared on reload or via the Clear button.
+// Conversation so follow-up questions ("…and the habit?") keep context. This
+// is the live Anthropic message array; it is mirrored into the `ask_ai_messages`
+// table (see askAiPersistHistory) so the history survives a reload and travels
+// inside the exported DB blob — i.e. it is part of both the local .db
+// download/import and the Google Drive backup/restore. The user can wipe it with
+// the Clear button (askAiClear).
 let askAiMessages = [];
 let askAiBusy = false;
 
@@ -296,6 +300,7 @@ async function askAiSend() {
     } finally {
         askAiBusy = false;
         askAiSetBusy(false);
+        askAiPersistHistory();   // mirror the updated conversation into the DB
     }
 }
 
@@ -330,10 +335,102 @@ function askAiExecuteToolUse(tu) {
     };
 }
 
+// Delete the conversation — both in memory and the persisted copy. Because the
+// history lives in the DB, this is a real deletion, so confirm first (unless
+// there is nothing saved yet).
 function askAiClear() {
+    const hadHistory = askAiMessages.length > 0;
+    if (hadHistory && !confirm('Delete this Ask AI conversation? This permanently removes the saved chat history from your database (and from future backups). This cannot be undone.')) {
+        return;
+    }
     askAiMessages = [];
     const log = document.getElementById('askAiTranscript');
     if (log) log.innerHTML = '';
+    if (typeof db !== 'undefined' && db) {
+        dbHelpers.safeRun('DELETE FROM ask_ai_messages', [], 'Clear Ask AI history');
+        if (typeof markDirty === 'function') markDirty();
+    }
+}
+
+// ── History persistence (rides inside the exported DB blob) ──────────────────
+
+// Build a privacy-preserving copy of the conversation for storage: only the
+// user's questions and the assistant's plain-text answers. The SQL (tool_use)
+// and the fetched rows (tool_result) blocks are DROPPED so no row-level data is
+// ever written to the DB or its backups. Same-role runs are merged into one
+// message, which keeps roles strictly alternating — so the saved transcript is
+// also a valid conversation to resend to the API after a reload.
+function askAiSanitizedHistory() {
+    const out = [];
+    for (const m of askAiMessages) {
+        let text;
+        if (m.role === 'user') {
+            // String content is a question; array content is tool_result rows → drop.
+            text = typeof m.content === 'string' ? m.content.trim() : '';
+        } else if (m.role === 'assistant') {
+            text = Array.isArray(m.content)
+                ? m.content.filter(b => b && b.type === 'text').map(b => b.text).join('\n').trim()
+                : (typeof m.content === 'string' ? m.content.trim() : '');
+        } else {
+            continue;
+        }
+        if (!text) continue;   // pure tool turn — nothing user-facing to keep
+        const last = out[out.length - 1];
+        if (last && last.role === m.role) last.content += '\n\n' + text;
+        else out.push({ role: m.role, content: text });
+    }
+    return out;
+}
+
+// Mirror the (sanitized) conversation into the ask_ai_messages table. Rewrites
+// the whole table each time (conversations are short) and marks the DB dirty so
+// the debounced IndexedDB flush picks it up. Called after every completed turn.
+function askAiPersistHistory() {
+    if (typeof db === 'undefined' || !db) return;
+    if (dbHelpers.safeRun('DELETE FROM ask_ai_messages', [], 'Save Ask AI history').success === false) return;
+    for (const m of askAiSanitizedHistory()) {
+        dbHelpers.safeRun(
+            'INSERT INTO ask_ai_messages (role, content) VALUES (?, ?)',
+            [m.role, m.content],
+            'Save Ask AI history'
+        );
+    }
+    if (typeof markDirty === 'function') markDirty();
+}
+
+// Load the persisted conversation into memory and re-render the transcript.
+// Called on startup and after a DB import / Drive restore so the chat reflects
+// whatever database is now loaded. Rows hold plain question/answer text (see
+// askAiSanitizedHistory), so each becomes a simple { role, content } message.
+function askAiLoadHistory() {
+    askAiMessages = [];
+    if (typeof db === 'undefined' || !db) return;
+    let rows = [];
+    try {
+        rows = dbHelpers.queryAll('SELECT role, content FROM ask_ai_messages ORDER BY id');
+    } catch (e) { /* table absent on a very old DB — setupSchema creates it */ }
+    for (const r of rows) {
+        if (r[0] && typeof r[1] === 'string') askAiMessages.push({ role: r[0], content: r[1] });
+    }
+    askAiRenderHistory();
+}
+
+// Rebuild the on-screen transcript from askAiMessages. The persisted messages
+// are plain { role, content:string }, so this just lays out the bubbles. (Live
+// turns are rendered incrementally by askAiSend; the SQL query traces shown live
+// are intentionally not reconstructed here, since they aren't persisted.)
+function askAiRenderHistory() {
+    const log = document.getElementById('askAiTranscript');
+    if (!log) return;
+    log.innerHTML = '';
+    for (const m of askAiMessages) {
+        const text = typeof m.content === 'string'
+            ? m.content
+            : (Array.isArray(m.content)
+                ? m.content.filter(b => b && b.type === 'text').map(b => b.text).join('\n').trim()
+                : '');
+        if (text) askAiAppendBubble(m.role === 'assistant' ? 'assistant' : 'user', text);
+    }
 }
 
 // ── Rendering ───────────────────────────────────────────────────────────────

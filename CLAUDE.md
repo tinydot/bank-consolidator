@@ -205,8 +205,19 @@ the only feature that sends transaction *contents* to a third party: when the
 user presses Send, it calls Anthropic's API (`api.anthropic.com`) with the live
 DB schema and gives Claude a single read-only `run_sql` tool, runs the SELECTs
 locally via `dbHelpers`, and feeds rows back until Claude answers. The API key
-is user-supplied, stored only in localStorage (`askAi_apiKey`), and the chat
-history lives in memory only. **Read-only is load-bearing:** `askAiIsReadOnly`
+is user-supplied, stored only in localStorage (`askAi_apiKey`). The chat history
+is persisted in the `ask_ai_messages` table (rather than localStorage) so it
+survives reloads and rides inside the single exported DB blob — i.e. it is part
+of both the local `.db` download/import and the Google Drive backup/restore.
+Only the plain question/answer **text** is stored: `askAiSanitizedHistory`
+strips the SQL (`tool_use`) and the fetched rows (`tool_result`) blocks before
+saving, so no row-level data ever lands in the DB or its backups, and merges
+same-role runs so the saved transcript stays a valid alternating conversation to
+resend. `askAiPersistHistory` rewrites the table after every completed turn
+(then `markDirty()`); `askAiLoadHistory` reloads + re-renders it on startup and
+after a DB import / Drive restore; the **Delete history** button (`askAiClear`)
+wipes both memory and the table after a `confirm()`. **Read-only is
+load-bearing:** `askAiIsReadOnly`
 rejects anything but a single SELECT/WITH statement, and every query runs inside
 a `SAVEPOINT … ROLLBACK` so the AI can never mutate the DB — keep both guards if
 you touch that path. A **privacy gate** (`askAiNeedsConfirmation`) sits between

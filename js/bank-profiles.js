@@ -393,6 +393,7 @@ async function handleDatabaseImport(e) {
         await updateAnalytics();
         await loadBudget();
         await loadPlanner();
+        askAiLoadHistory();
         showMessage('success', 'Database imported successfully (including bank profiles, rules, budget, and planner)');
     } catch (error) {
         showMessage('error', 'Failed to import database: ' + error.message);

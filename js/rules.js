@@ -521,9 +521,11 @@ function renderFrequentTransactions() {
         return;
     }
 
-    // Build a subcategory id→name map once for rule-match previews.
+    // Build lookup maps once for rule-match previews.
     const subNameById = {};
     dbHelpers.queryAll('SELECT id, name FROM subcategories').forEach(r => { subNameById[r[0]] = r[1]; });
+    const ruleKeywordById = {};
+    dbHelpers.queryAll('SELECT id, keyword FROM transaction_rules').forEach(r => { ruleKeywordById[r[0]] = r[1]; });
 
     const frag = document.createDocumentFragment();
 
@@ -534,18 +536,25 @@ function renderFrequentTransactions() {
 
         // What would the current rules do with this merchant?
         const ruleResult = applyTransactionRules(g.sample, null);
-        let ruleLabel, ruleColor;
+        const matchedKw = ruleResult.ruleId != null ? ruleKeywordById[ruleResult.ruleId] : null;
+        let ruleLabel, ruleColor, ruleTitle = '';
         if (ruleResult.shouldIgnore) {
             ruleLabel = 'Rule: ignored';
             ruleColor = '#e74c3c';
         } else if (ruleResult.categorized) {
             const subName = ruleResult.subcategoryId != null ? subNameById[ruleResult.subcategoryId] : null;
+            // Name the winning rule so it's obvious when a *different* keyword rule
+            // (without the subcategory) is the one actually matching this merchant.
+            const via = matchedKw ? ` [${matchedKw}]` : '';
             if (subName) {
-                ruleLabel = `Rule → ${ruleResult.category} · ${subName}`;
+                ruleLabel = `Rule${via} → ${ruleResult.category} · ${subName}`;
                 ruleColor = '#2ecc71';
             } else {
-                ruleLabel = `Rule → ${ruleResult.category} (no subcategory)`;
+                ruleLabel = `Rule${via} → ${ruleResult.category} (no subcategory)`;
                 ruleColor = '#f39c12';
+                ruleTitle = matchedKw
+                    ? `The rule "${matchedKw}" matches this merchant first and has no subcategory. Click "Refine rule" to edit that exact rule, or raise the priority of a more specific rule.`
+                    : '';
             }
         } else {
             ruleLabel = 'No rule';
@@ -567,8 +576,9 @@ function renderFrequentTransactions() {
         `;
 
         const pill = document.createElement('span');
-        pill.style.cssText = `font-size:11px; font-weight:600; color:white; background:${ruleColor}; padding:3px 9px; border-radius:10px; white-space:nowrap;`;
+        pill.style.cssText = `font-size:11px; font-weight:600; color:white; background:${ruleColor}; padding:3px 9px; border-radius:10px; white-space:nowrap;${ruleTitle ? ' cursor:help;' : ''}`;
         pill.textContent = ruleLabel;
+        if (ruleTitle) pill.title = ruleTitle;
 
         const btn = document.createElement('button');
         btn.style.cssText = 'padding:5px 10px; font-size:12px; white-space:nowrap;';

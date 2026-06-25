@@ -13,19 +13,26 @@ function insertTransaction(transaction) {
         // Resolve category_id (fallback to Uncategorized)
         const categoryName = ruleResult.category || 'Uncategorized';
         let categoryId = dbHelpers.queryValue('SELECT id FROM categories WHERE name = ?', [categoryName]);
+        let resolvedFromRule = true;
         if (!categoryId) {
             categoryId = dbHelpers.queryValue('SELECT id FROM categories WHERE name = ?', ['Uncategorized']);
+            resolvedFromRule = false;
         }
 
+        // Only carry the rule's subcategory when the rule's category actually resolved,
+        // so the subcategory never ends up paired with the wrong (fallback) category.
+        const subcategoryId = (ruleResult.categorized && resolvedFromRule) ? ruleResult.subcategoryId : null;
+
         dbHelpers.safeRun(`
-            INSERT INTO transactions (import_id, date, description, amount, category_id, ignored, auto_ignored)
-            VALUES (?, ?, ?, ?, ?, ?, 0)
+            INSERT INTO transactions (import_id, date, description, amount, category_id, subcategory_id, ignored, auto_ignored)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
         `, [
             transaction.import_id,
             transaction.date,
             transaction.description,
             transaction.amount,
             categoryId,
+            subcategoryId,
             ruleResult.shouldIgnore ? 1 : 0
         ], 'Insert transaction');
     } catch (e) {
@@ -38,13 +45,13 @@ function applyTransactionRules(description, defaultCategory) {
     const fallbackCategory = defaultCategory || 'Uncategorized';
 
     if (!description) {
-        return { shouldIgnore: false, category: fallbackCategory };
+        return { shouldIgnore: false, category: fallbackCategory, subcategoryId: null, categorized: false };
     }
 
     try {
         // Get all enabled rules ordered by priority (higher first)
         const rulesResult = db.exec(`
-            SELECT tr.keyword, tr.action, c.name as category_name, tr.case_sensitive 
+            SELECT tr.keyword, tr.action, c.name as category_name, tr.case_sensitive, tr.subcategory_value
             FROM transaction_rules tr
             LEFT JOIN categories c ON tr.category_value = c.id
             WHERE tr.enabled = 1
@@ -52,11 +59,12 @@ function applyTransactionRules(description, defaultCategory) {
         `);
 
         if (!rulesResult.length || !rulesResult[0].values.length) {
-            return { shouldIgnore: false, category: fallbackCategory };
+            return { shouldIgnore: false, category: fallbackCategory, subcategoryId: null, categorized: false };
         }
 
         let shouldIgnore = false;
         let category = fallbackCategory;
+        let subcategoryId = null;
 
         // Apply rules in priority order (first match wins for each action type)
         let ignoreRuleMatched = false;
@@ -67,6 +75,7 @@ function applyTransactionRules(description, defaultCategory) {
             const action = rule[1];
             const categoryValue = rule[2];
             const caseSensitive = rule[3];
+            const subcategoryValue = rule[4];
 
             // Word-boundary match: keyword must not be a substring of a larger word/phrase
             // Uses explicit boundary check instead of lookbehind for Safari < 16.4 compatibility
@@ -80,6 +89,9 @@ function applyTransactionRules(description, defaultCategory) {
                     ignoreRuleMatched = true;
                 } else if (action === 'categorize' && !categoryRuleMatched && categoryValue) {
                     category = categoryValue;
+                    // The matched rule may also assign a subcategory (id of a row that
+                    // belongs to the same category — the two are set together in the form).
+                    subcategoryId = subcategoryValue != null ? subcategoryValue : null;
                     categoryRuleMatched = true;
                 }
 
@@ -90,10 +102,10 @@ function applyTransactionRules(description, defaultCategory) {
             }
         }
 
-        return { shouldIgnore, category };
+        return { shouldIgnore, category, subcategoryId, categorized: categoryRuleMatched };
     } catch (e) {
         console.error('Error applying rules:', e);
-        return { shouldIgnore: false, category: fallbackCategory };
+        return { shouldIgnore: false, category: fallbackCategory, subcategoryId: null, categorized: false };
     }
 }
 

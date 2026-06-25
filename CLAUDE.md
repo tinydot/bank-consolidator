@@ -30,7 +30,14 @@ any one of them:
    (columns, date format) and the account is auto-detected from the filename.
 2. **Categorise** using the Analytics category breakdown to see where the money
    goes, then add/refine **Categories** (`js/categories.js`) and **Rules**
-   (`js/rules.js`) so future imports self-categorise.
+   (`js/rules.js`) so future imports self-categorise. A rule can assign both a
+   category **and** an optional subcategory (`transaction_rules.subcategory_value`);
+   `applyTransactionRules` returns `{ shouldIgnore, category, subcategoryId,
+   categorized }` and both `insertTransaction` and `applyRulesToExisting` persist
+   the subcategory. Rules are editable (`editRule`), and the Rules tab also shows a
+   **frequent-merchant** panel (`renderFrequentTransactions` / `normalizeMerchant`)
+   that groups transactions by a noise-stripped merchant key and previews which
+   rule currently tags each group — the main lever for filling in subcategories.
 3. **Budget** (`js/budget.js`) — set a monthly limit per category. The workflow
    is **monthly**: both Budget and Analytics have a month navigator, so you can
    step through past months and see how each month's actual spend compares

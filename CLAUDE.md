@@ -211,6 +211,16 @@ denial keeps the rows on-device and returns an error tool_result telling Claude
 to use an aggregate instead. The panel works on `file://` too (unlike Drive).
 Do **not** make it send data automatically or without an explicit Send action.
 
+An optional **personal-context box** (`askAiStoredContext`, localStorage key
+`askAi_context`) lets the user describe their situation, local cost norms and
+goals (e.g. "I'm in Singapore, hawker meals under $6 are normal — don't suggest
+meal-prep"). When non-empty it is injected into `askAiSystemPrompt` as an
+authoritative "USER-PROVIDED CONTEXT" block so answers fit the user's life
+instead of generic personal-finance defaults; the prompt also tells Claude to
+weigh local norms and ask a clarifying question before labelling spend as a "bad
+habit". It is plain text the user edits in the Ask AI setup panel, stored only
+in this browser, and sent to the API as part of the system prompt on every Send.
+
 The sole exception is the **optional, manual Google Drive backup** in
 `js/drive-sync.js` (added at the user's request). There is no backend we run:
 it uses Google Identity Services (token model) + the minimal `drive.file` scope

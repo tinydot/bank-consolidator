@@ -74,8 +74,8 @@ function renderEmergencyFundProgress() {
 
     if (target <= 0) {
         container.innerHTML = `<div style="color:#7f8c8d; font-size:13px;">
-            Set category limits in the <strong>Budget</strong> tab and add any
-            recurring commitments in the <strong>Planner</strong> tab to calculate
+            Set category limits in the <strong>Budget</strong> section and add any
+            recurring commitments in the <strong>Planner</strong> section to calculate
             your emergency-fund target.</div>`;
         return;
     }

@@ -953,7 +953,7 @@ function loadFinancialHealth() {
                 <div style="font-weight:600; font-size:14px; color:${statusColor};">${statusText}</div>
                 <div style="font-size:12px; color:#7f8c8d;">
                     ${monthlyBurn <= 0
-                        ? 'Set category limits in the Budget tab (and add Planner commitments) to calculate your target'
+                        ? 'Set category limits in the Budget section (and add Planner commitments) to calculate your target'
                         : projectedBalance >= emergencyFundTarget
                             ? 'Your emergency-eligible cash covers the full 6-month target'
                             : projectedBalance >= monthlyBurn * 3

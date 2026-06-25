@@ -413,17 +413,8 @@ function switchTab(tab) {
     activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
     document.getElementById(`${tab}-tab`).classList.add('active');
 
-    if (tab === 'overview') {
-        loadOverview();
-    }
-
     if (tab === 'planner') {
-        loadPlanner();
-    }
-
-    if (tab === 'budget') {
-        budgetMonth = new Date().toISOString().slice(0, 7);
-        loadBudget();
+        switchPlannerSection(currentPlannerSection || 'overview');
     }
 
     if (tab === 'settings') {
@@ -436,6 +427,33 @@ function switchTab(tab) {
 
     if (tab === 'transactions') {
         populateManualAccountSelect();
+    }
+}
+
+// Sub-navigation inside the consolidated Planner tab: Overview / Analytics /
+// Budget / Planner are now sections of this one tab rather than top-level tabs.
+let currentPlannerSection = 'overview';
+
+function switchPlannerSection(section) {
+    currentPlannerSection = section;
+
+    document.querySelectorAll('.subtab-button').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.planner-section').forEach(sec => sec.classList.remove('active'));
+
+    const activeBtn = document.querySelector(`[onclick="switchPlannerSection('${section}')"]`);
+    if (activeBtn) activeBtn.classList.add('active');
+    const activeSection = document.getElementById(`planner-section-${section}`);
+    if (activeSection) activeSection.classList.add('active');
+
+    if (section === 'overview') {
+        loadOverview();
+    } else if (section === 'analytics') {
+        updateAnalytics();
+    } else if (section === 'budget') {
+        budgetMonth = new Date().toISOString().slice(0, 7);
+        loadBudget();
+    } else if (section === 'planner') {
+        loadPlanner();
     }
 }
 

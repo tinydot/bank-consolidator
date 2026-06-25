@@ -33,37 +33,14 @@
 
         <div class="tabs">
             <div class="tab-buttons">
-                <button class="tab-button active" onclick="switchTab('overview')">🏠 Overview</button>
-                <button class="tab-button" onclick="switchTab('transactions')">💳 Transactions</button>
-                <button class="tab-button" onclick="switchTab('analytics')">📊 Analytics</button>
-                <button class="tab-button" onclick="switchTab('budget')">💰 Budget</button>
+                <button class="tab-button active" onclick="switchTab('transactions')">💳 Transactions</button>
                 <button class="tab-button" onclick="switchTab('planner')">📋 Planner</button>
                 <button class="tab-button" onclick="switchTab('ask')">🤖 Ask AI</button>
                 <button class="tab-button" onclick="switchTab('settings')">🔧 Settings</button>
             </div>
 
-            <!-- OVERVIEW TAB -->
-            <div id="overview-tab" class="tab-content active">
-                <div class="chart-container">
-                    <h3 style="margin-bottom: 20px;">🎯 Emergency Fund Progress</h3>
-                    <div id="overviewEmergencyFund"></div>
-                </div>
-
-                <div class="chart-container">
-                    <h3 style="margin-bottom: 20px;">💸 Savings Rate (Last 6 Months)</h3>
-                    <div id="overviewSavingsSummary"></div>
-                    <canvas id="overviewSavingsChart"></canvas>
-                </div>
-
-                <div class="chart-container">
-                    <h3 style="margin-bottom: 20px;">📈 Balance Trend</h3>
-                    <div id="overviewBalanceSummary"></div>
-                    <canvas id="overviewBalanceChart"></canvas>
-                </div>
-            </div>
-
             <!-- TRANSACTIONS TAB -->
-            <div id="transactions-tab" class="tab-content">
+            <div id="transactions-tab" class="tab-content active">
                 <div id="import-bar">
                     <label for="fileInput" class="compact-drop-zone" id="dropZone">
                         <span class="compact-drop-icon">📁</span>
@@ -183,8 +160,38 @@
             </div>
             <!-- /TRANSACTIONS TAB -->
 
-            <!-- ANALYTICS TAB -->
-            <div id="analytics-tab" class="tab-content">
+            <!-- PLANNER TAB (consolidates Overview, Analytics, Budget & Planner) -->
+            <div id="planner-tab" class="tab-content">
+
+                <div class="subtab-buttons">
+                    <button class="subtab-button active" onclick="switchPlannerSection('overview')">🏠 Overview</button>
+                    <button class="subtab-button" onclick="switchPlannerSection('analytics')">📊 Analytics</button>
+                    <button class="subtab-button" onclick="switchPlannerSection('budget')">💰 Budget</button>
+                    <button class="subtab-button" onclick="switchPlannerSection('planner')">📋 Planner</button>
+                </div>
+
+                <!-- OVERVIEW SECTION -->
+                <div id="planner-section-overview" class="planner-section active">
+                    <div class="chart-container">
+                        <h3 style="margin-bottom: 20px;">🎯 Emergency Fund Progress</h3>
+                        <div id="overviewEmergencyFund"></div>
+                    </div>
+
+                    <div class="chart-container">
+                        <h3 style="margin-bottom: 20px;">💸 Savings Rate (Last 6 Months)</h3>
+                        <div id="overviewSavingsSummary"></div>
+                        <canvas id="overviewSavingsChart"></canvas>
+                    </div>
+
+                    <div class="chart-container">
+                        <h3 style="margin-bottom: 20px;">📈 Balance Trend</h3>
+                        <div id="overviewBalanceSummary"></div>
+                        <canvas id="overviewBalanceChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- ANALYTICS SECTION -->
+                <div id="planner-section-analytics" class="planner-section">
                 <div class="chart-container">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
                         <h3 style="margin:0;">Transaction Details by Category</h3>
@@ -211,10 +218,10 @@
                     <h3 style="margin-bottom: 20px;">Last Transaction Date by Account</h3>
                     <div id="lastTransactionTable"></div>
                 </div>
-            </div>
+                </div><!-- /planner-section-analytics -->
 
-            <!-- BUDGET TAB -->
-            <div id="budget-tab" class="tab-content">
+                <!-- BUDGET SECTION -->
+                <div id="planner-section-budget" class="planner-section">
                 <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
                     <h3 style="margin:0;">Monthly Budget</h3>
                     <div style="display:flex; align-items:center; gap:12px;">
@@ -225,16 +232,16 @@
                 </div>
                 <p style="color: #7f8c8d; margin-bottom: 24px;" id="budgetSubtitle">Set a monthly spending limit per category. Leave blank for no limit.</p>
                 <div id="budgetContainer"></div>
-            </div>
+                </div><!-- /planner-section-budget -->
 
-            <!-- PLANNER TAB -->
-            <div id="planner-tab" class="tab-content">
+                <!-- PLANNER SECTION -->
+                <div id="planner-section-planner" class="planner-section">
                 <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
                     <h3 style="margin:0;">Emergency Fund Planner</h3>
                     <button onclick="showAddCommitmentForm()" style="padding:6px 16px;">+ Add Expense</button>
                 </div>
                 <p style="color:#7f8c8d; margin-bottom:20px;">
-                    Your <strong>Budget</strong> tab sets the baseline monthly spend; here you add the lumpy, recurring commitments a flat budget misses — term-dated school fees, or every-N-months costs like aircon servicing and dental scaling. Baseline + commitments over 6 months is your emergency-fund target.
+                    The <strong>Budget</strong> section sets the baseline monthly spend; here you add the lumpy, recurring commitments a flat budget misses — term-dated school fees, or every-N-months costs like aircon servicing and dental scaling. Baseline + commitments over 6 months is your emergency-fund target.
                 </p>
 
                 <!-- Add/Edit form -->
@@ -303,12 +310,12 @@
                     </div>
                 </div>
 
-                <!-- Budget baseline (read-only, sourced from the Budget tab) -->
+                <!-- Budget baseline (read-only, sourced from the Budget section) -->
                 <div style="background:#fff8e1; border:1px solid #f39c12; border-radius:8px; padding:14px 18px; margin-bottom:20px; display:flex; align-items:center; gap:16px;">
                     <span style="font-size:18px;">💰</span>
                     <div style="flex:1;">
                         <div style="font-weight:600; margin-bottom:2px;">Monthly budget baseline</div>
-                        <div style="font-size:12px; color:#7f8c8d;">Sum of your category limits from the <strong>Budget</strong> tab — the steady run-rate the fund is built on. Adjust it there.</div>
+                        <div style="font-size:12px; color:#7f8c8d;">Sum of your category limits from the <strong>Budget</strong> section — the steady run-rate the fund is built on. Adjust it there.</div>
                     </div>
                     <div style="display:flex; align-items:center; gap:8px;">
                         <span id="plannerBudgetBaseline" style="font-size:16px; font-weight:600; color:#e67e22;">S$0.00</span>
@@ -472,9 +479,10 @@
                     <div id="plannerDayDetail" style="display:none; background:#fff; border:1px solid #dee2e6; border-radius:8px; padding:16px; margin-top:16px;"></div>
                 </div><!-- /plannerMonthView -->
 
-            </div>
+                </div><!-- /planner-section-planner -->
 
-            <!-- SETTINGS TAB -->
+            </div><!-- /planner-tab -->
+
             <!-- ASK AI TAB -->
             <div id="ask-tab" class="tab-content">
                 <div class="chart-container">

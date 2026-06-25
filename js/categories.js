@@ -27,7 +27,7 @@ async function saveMonthlyIncome() {
     }
     markDirty();
     showMessage('success', val === '' ? 'Monthly income cleared.' : `Monthly income set to $${fmtMoneyLocale(toCents(val))}.`);
-    if (document.getElementById('analytics-tab').classList.contains('active')) {
+    if (document.getElementById('planner-section-analytics').classList.contains('active')) {
         await updateAnalytics();
     }
 }
@@ -38,7 +38,7 @@ async function clearMonthlyIncome() {
     db.run("DELETE FROM settings WHERE key = 'monthly_expected_income'");
     markDirty();
     showMessage('success', 'Monthly income cleared. Analytics will use actual transaction income.');
-    if (document.getElementById('analytics-tab').classList.contains('active')) {
+    if (document.getElementById('planner-section-analytics').classList.contains('active')) {
         await updateAnalytics();
     }
 }

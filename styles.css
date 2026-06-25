@@ -109,6 +109,61 @@ h1 {
     display: block;
 }
 
+/* Sub-navigation inside the consolidated Planner tab */
+.subtab-buttons {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 24px;
+    border-bottom: 2px solid #ecf0f1;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.subtab-buttons::-webkit-scrollbar {
+    display: none;
+}
+
+.subtab-button {
+    padding: 10px 16px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    color: #7f8c8d;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.subtab-button:hover {
+    color: #2c3e50;
+}
+
+.subtab-button.active {
+    color: #3498db;
+    border-bottom-color: #3498db;
+    font-weight: 600;
+}
+
+.planner-section {
+    display: none;
+}
+
+.planner-section.active {
+    display: block;
+}
+
+@media (max-width: 600px) {
+    .subtab-button {
+        padding: 10px 12px;
+        font-size: 12px;
+    }
+}
+
 /* Compact import bar at top of Transactions tab */
 #import-bar {
     margin-bottom: 20px;

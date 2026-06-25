@@ -320,7 +320,10 @@
                 <div id="financialHealthCheck" style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:8px; padding:20px; margin-bottom:24px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
                         <h4 style="margin:0;">💰 Financial Health Check</h4>
-                        <button onclick="showUpdateBalanceForm()" class="secondary-btn" style="padding:6px 12px; font-size:13px;">Update Balance</button>
+                        <div style="display:flex; gap:8px;">
+                            <button onclick="showBatchBalanceForm()" class="secondary-btn" style="padding:6px 12px; font-size:13px;">Record month-end</button>
+                            <button onclick="showUpdateBalanceForm()" class="secondary-btn" style="padding:6px 12px; font-size:13px;">Update Balance</button>
+                        </div>
                     </div>
                     <div id="balanceDisplay">
                         <div style="color:#7f8c8d; font-size:13px;">No bank balance recorded yet. Click "Update Balance" to add.</div>

@@ -877,6 +877,7 @@ function loadFinancialHealth() {
                 <td style="padding:7px 8px; font-size:11px; color:#95a5a6; white-space:nowrap;">${escapeHtml(d.asOf || '')}</td>
                 <td style="padding:7px 8px; text-align:right; white-space:nowrap;">
                     <button data-update-account="${d.accountId}" class="secondary-btn" style="padding:3px 10px; font-size:12px;">Update</button>
+                    <button data-history-account="${d.accountId}" class="secondary-btn" title="View / edit past snapshots" style="padding:3px 8px; font-size:12px;">🕑</button>
                     <button data-delete-account="${d.accountId}" class="secondary-btn" title="Remove this balance entry" style="padding:3px 8px; font-size:12px; color:#e74c3c;">✕</button>
                 </td>
             </tr>`;
@@ -969,6 +970,9 @@ function loadFinancialHealth() {
     container.querySelectorAll('[data-update-account]').forEach(btn => {
         btn.addEventListener('click', () => quickUpdateBalance(btn.getAttribute('data-update-account')));
     });
+    container.querySelectorAll('[data-history-account]').forEach(btn => {
+        btn.addEventListener('click', () => showBalanceHistory(btn.getAttribute('data-history-account')));
+    });
     container.querySelectorAll('[data-delete-account]').forEach(btn => {
         btn.addEventListener('click', () => deleteBalanceAccount(btn.getAttribute('data-delete-account')));
     });
@@ -986,6 +990,181 @@ function deleteBalanceAccount(accountId) {
     loadFinancialHealth();
     if (typeof loadOverview === 'function') loadOverview();
     showMessage('success', 'Balance entry removed');
+}
+
+function refreshBalanceViews() {
+    loadFinancialHealth();
+    if (typeof loadOverview === 'function') loadOverview();
+}
+
+// ── Per-snapshot history management ──────────────────────────────────────────
+// Lists every recorded snapshot for one account so individual readings can be
+// corrected or removed (the per-account ✕ wipes them all at once). Each amount is
+// editable in place; saving updates that one dated row.
+function showBalanceHistory(accountId) {
+    closeBalanceHistory();
+    const acct = dbHelpers.queryFirst(
+        'SELECT a.account_name, b.name FROM accounts a JOIN banks b ON b.id = a.bank_id WHERE a.id = ?',
+        [accountId]);
+    const label = acct ? `${acct[1]} — ${acct[0]}` : 'Account';
+    const snaps = dbHelpers.queryAll(
+        'SELECT id, as_of_date, balance FROM bank_balances WHERE account_id = ? ORDER BY as_of_date DESC',
+        [accountId]);
+
+    const rows = snaps.map(([id, date, bal]) => `
+        <tr style="border-top:1px solid #eef1f4;">
+            <td style="padding:6px 8px; font-size:13px; color:#2c3e50; white-space:nowrap;">${escapeHtml(date || '')}</td>
+            <td style="padding:6px 8px; text-align:right;">
+                <input type="number" id="snapAmt_${id}" value="${fromCents(bal).toFixed(2)}" min="0" step="0.01"
+                       style="width:120px; text-align:right; padding:4px 6px; font-size:13px;">
+            </td>
+            <td style="padding:6px 8px; text-align:right; white-space:nowrap;">
+                <button data-snap-save="${id}" class="secondary-btn" style="padding:3px 10px; font-size:12px;">Save</button>
+                <button data-snap-del="${id}" class="secondary-btn" style="padding:3px 8px; font-size:12px; color:#e74c3c;">✕</button>
+            </td>
+        </tr>`).join('');
+
+    const html = `
+        <div id="balanceHistoryModal" style="position:fixed; inset:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:1000;">
+            <div style="background:white; padding:24px; border-radius:8px; max-width:480px; width:90%; max-height:80vh; overflow:auto;">
+                <h3 style="margin:0 0 4px;">Balance history</h3>
+                <div style="font-size:13px; color:#7f8c8d; margin-bottom:14px;">${escapeHtml(label)}</div>
+                ${snaps.length ? `
+                <table style="width:100%; border-collapse:collapse;">
+                    <thead><tr style="text-align:left; color:#7f8c8d; font-size:11px; text-transform:uppercase;">
+                        <th style="padding:4px 8px; font-weight:600;">Date</th>
+                        <th style="padding:4px 8px; font-weight:600; text-align:right;">Balance (SGD)</th>
+                        <th></th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>` : '<div style="color:#7f8c8d; font-size:13px;">No snapshots recorded.</div>'}
+                <div style="margin-top:18px; text-align:right;">
+                    <button class="secondary-btn" onclick="closeBalanceHistory()">Close</button>
+                </div>
+            </div>
+        </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+
+    const modal = document.getElementById('balanceHistoryModal');
+    modal.addEventListener('click', e => { if (e.target.id === 'balanceHistoryModal') closeBalanceHistory(); });
+    modal.querySelectorAll('[data-snap-save]').forEach(btn => {
+        btn.addEventListener('click', () => updateBalanceSnapshot(btn.getAttribute('data-snap-save'), accountId));
+    });
+    modal.querySelectorAll('[data-snap-del]').forEach(btn => {
+        btn.addEventListener('click', () => deleteBalanceSnapshot(btn.getAttribute('data-snap-del'), accountId));
+    });
+}
+
+function closeBalanceHistory() {
+    const m = document.getElementById('balanceHistoryModal');
+    if (m) m.remove();
+}
+
+function updateBalanceSnapshot(snapshotId, accountId) {
+    const input = document.getElementById(`snapAmt_${snapshotId}`);
+    if (!input) return;
+    const raw = input.value.trim();
+    if (raw === '') { alert('Enter an amount'); return; }
+    db.run('UPDATE bank_balances SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [toCents(raw), snapshotId]);
+    markDirty();
+    refreshBalanceViews();
+    showMessage('success', 'Snapshot updated');
+    showBalanceHistory(accountId);  // re-render with fresh values
+}
+
+function deleteBalanceSnapshot(snapshotId, accountId) {
+    if (!confirm('Delete this balance snapshot? Your transactions are untouched.')) return;
+    db.run('DELETE FROM bank_balances WHERE id = ?', [snapshotId]);
+    markDirty();
+    refreshBalanceViews();
+    showBalanceHistory(accountId);
+    showMessage('success', 'Snapshot deleted');
+}
+
+// ── Batch month-end entry ────────────────────────────────────────────────────
+// Record one date across every account in a single pass — the practical way to
+// build up monthly history instead of opening the single-account form N times.
+function showBatchBalanceForm() {
+    closeBatchBalanceForm();
+    const accounts = dbHelpers.queryAll(`
+        SELECT a.id, a.account_name, b.name AS bank_name
+        FROM accounts a JOIN banks b ON a.bank_id = b.id
+        ORDER BY b.name, a.account_name`);
+    if (!accounts.length) { alert('No accounts imported yet'); return; }
+
+    const latest = latestBalancesByAccount();
+    const today = new Date().toISOString().split('T')[0];
+
+    const rows = accounts.map(([id, name, bank]) => {
+        const prev = latest[id];
+        const val = prev != null ? fromCents(prev).toFixed(2) : '';
+        return `
+            <tr style="border-top:1px solid #eef1f4;">
+                <td style="padding:6px 8px; font-size:13px; color:#2c3e50;">${escapeHtml(bank)} — ${escapeHtml(name)}</td>
+                <td style="padding:6px 8px; text-align:right;">
+                    <input type="number" id="batchAmt_${id}" value="${val}" min="0" step="0.01" placeholder="—"
+                           style="width:120px; text-align:right; padding:4px 6px; font-size:13px;">
+                </td>
+            </tr>`;
+    }).join('');
+
+    const html = `
+        <div id="batchBalanceModal" style="position:fixed; inset:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:1000;">
+            <div style="background:white; padding:24px; border-radius:8px; max-width:520px; width:90%; max-height:85vh; overflow:auto;">
+                <h3 style="margin:0 0 4px;">Record month-end balances</h3>
+                <div style="font-size:13px; color:#7f8c8d; margin-bottom:14px;">
+                    Enter each account's balance as of one date — blank rows are skipped.
+                    Amounts pre-fill from the last recorded value.
+                </div>
+                <div class="form-group" style="margin:0 0 14px; max-width:200px;">
+                    <label>As of date</label>
+                    <input type="date" id="batchBalanceDate" value="${today}">
+                </div>
+                <table style="width:100%; border-collapse:collapse;">
+                    <thead><tr style="text-align:left; color:#7f8c8d; font-size:11px; text-transform:uppercase;">
+                        <th style="padding:4px 8px; font-weight:600;">Account</th>
+                        <th style="padding:4px 8px; font-weight:600; text-align:right;">Balance (SGD)</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+                <div style="margin-top:18px; display:flex; gap:8px; justify-content:flex-end;">
+                    <button onclick="saveBatchBalances()">Save all</button>
+                    <button class="secondary-btn" onclick="closeBatchBalanceForm()">Cancel</button>
+                </div>
+            </div>
+        </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    document.getElementById('batchBalanceModal').addEventListener('click', e => {
+        if (e.target.id === 'batchBalanceModal') closeBatchBalanceForm();
+    });
+}
+
+function closeBatchBalanceForm() {
+    const m = document.getElementById('batchBalanceModal');
+    if (m) m.remove();
+}
+
+function saveBatchBalances() {
+    const asOfDate = document.getElementById('batchBalanceDate').value;
+    if (!asOfDate) { alert('Pick a date'); return; }
+
+    let saved = 0;
+    dbHelpers.queryAll('SELECT id FROM accounts').forEach(([id]) => {
+        const input = document.getElementById(`batchAmt_${id}`);
+        if (!input) return;
+        const raw = input.value.trim();
+        if (raw === '') return;  // skip blanks
+        db.run(`INSERT INTO bank_balances (account_id, balance, as_of_date) VALUES (?, ?, ?)
+                ON CONFLICT(account_id, as_of_date) DO UPDATE SET balance = excluded.balance, updated_at = CURRENT_TIMESTAMP`,
+            [id, toCents(raw), asOfDate]);
+        saved++;
+    });
+
+    if (!saved) { alert('Enter at least one balance'); return; }
+    markDirty();
+    closeBatchBalanceForm();
+    refreshBalanceViews();
+    showMessage('success', `Recorded ${saved} balance${saved === 1 ? '' : 's'} as of ${asOfDate}`);
 }
 
 // Open the Update Balance form pre-selected to a specific account so the user
@@ -1067,7 +1246,11 @@ function saveBalance() {
         return;
     }
 
-    db.run('INSERT INTO bank_balances (account_id, balance, as_of_date) VALUES (?, ?, ?)', [accountId, amount, asOfDate]);
+    // One snapshot per account per day: re-recording the same date corrects it
+    // in place rather than stacking duplicate rows (idx_bank_balances_acct_date).
+    db.run(`INSERT INTO bank_balances (account_id, balance, as_of_date) VALUES (?, ?, ?)
+            ON CONFLICT(account_id, as_of_date) DO UPDATE SET balance = excluded.balance, updated_at = CURRENT_TIMESTAMP`,
+        [accountId, amount, asOfDate]);
     db.run(`INSERT INTO account_purpose (account_id, bucket, emergency) VALUES (?, ?, ?)
             ON CONFLICT(account_id) DO UPDATE SET bucket = excluded.bucket, emergency = excluded.emergency`,
         [accountId, bucket, emergency]);

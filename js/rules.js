@@ -518,9 +518,18 @@ function renderFrequentTransactions() {
 
         const btn = document.createElement('button');
         btn.style.cssText = 'padding:5px 10px; font-size:12px; white-space:nowrap;';
-        btn.textContent = ruleResult.categorized ? '✎ Refine rule' : '+ Create rule';
         const domId = dominant ? dominant.id : null;
-        btn.addEventListener('click', () => createRuleFromMerchant(g.key, domId));
+        if (ruleResult.categorized && ruleResult.ruleId != null) {
+            // A rule already tags this merchant — edit that exact rule (e.g. to add
+            // the subcategory) rather than creating a duplicate that loses on priority.
+            const matchedId = ruleResult.ruleId;
+            btn.textContent = '✎ Refine rule';
+            btn.title = 'Edit the rule that currently matches this merchant';
+            btn.addEventListener('click', () => editRule(matchedId));
+        } else {
+            btn.textContent = '+ Create rule';
+            btn.addEventListener('click', () => createRuleFromMerchant(g.key, domId));
+        }
 
         card.appendChild(left);
         card.appendChild(pill);

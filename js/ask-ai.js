@@ -29,6 +29,7 @@ const ANTHROPIC_VERSION = '2023-06-01';
 // localStorage keys
 const AI_KEY = 'askAi_apiKey';
 const AI_MODEL = 'askAi_model';
+const AI_CONTEXT = 'askAi_context';   // free-text "about me" injected into the system prompt
 
 const AI_DEFAULT_MODEL = 'claude-opus-4-8';
 const AI_MAX_TOOL_ROUNDS = 8;   // safety cap on the agentic query loop
@@ -51,6 +52,31 @@ function askAiStoredKey() {
 
 function askAiModel() {
     return localStorage.getItem(AI_MODEL) || AI_DEFAULT_MODEL;
+}
+
+// User-supplied situational context ("I'm in Singapore, hawker meals under $6
+// are normal…"). Reframes answers so they fit the user's life instead of
+// generic personal-finance defaults. Stored only in this browser.
+function askAiStoredContext() {
+    return (localStorage.getItem(AI_CONTEXT) || '').trim();
+}
+
+function askAiSaveContext() {
+    const ta = document.getElementById('askAiContext');
+    if (!ta) return;
+    const val = ta.value.trim();
+    if (val) localStorage.setItem(AI_CONTEXT, val);
+    else localStorage.removeItem(AI_CONTEXT);
+    showMessage('success', val ? 'Context saved — Claude will use it.' : 'Context cleared.');
+    askAiRenderState();
+}
+
+function askAiClearContext() {
+    localStorage.removeItem(AI_CONTEXT);
+    const ta = document.getElementById('askAiContext');
+    if (ta) ta.value = '';
+    showMessage('success', 'Context cleared.');
+    askAiRenderState();
 }
 
 function askAiIsConfigured() {
@@ -184,6 +210,7 @@ function askAiSchemaDump() {
 
 function askAiSystemPrompt() {
     const today = new Date().toISOString().slice(0, 10);
+    const userContext = askAiStoredContext();
     return [
         'You are a personal-finance assistant embedded in the user\'s "Bank Statement',
         'Consolidator" app. You answer questions about THEIR finances by querying their',
@@ -193,6 +220,22 @@ function askAiSystemPrompt() {
         'upcoming committed expenses — then give a clear yes/no/maybe with the figures.',
         '',
         `Today is ${today}.`,
+        '',
+        // User-provided situational context. Treat as authoritative about the
+        // user's circumstances and norms so advice fits their life rather than
+        // generic defaults. Only included when the user has filled it in.
+        ...(userContext ? [
+            'USER-PROVIDED CONTEXT (authoritative about the user\'s situation, local',
+            'norms and goals — weigh advice against it, do not override it with generic',
+            'personal-finance assumptions):',
+            userContext,
+            '',
+        ] : []),
+        'Before labelling spending as wasteful or a "bad habit", consider local cost',
+        'norms and the user\'s stated context above. If their intent or what counts as',
+        'reasonable for them is unclear, ask a brief clarifying question rather than',
+        'assuming. Do not apply one-size-fits-all advice (e.g. "meal-prep instead of',
+        'eating out") when local norms or the user\'s context make it inappropriate.',
         '',
         'CRITICAL DATA SEMANTICS:',
         '- ALL money columns are stored as INTEGER CENTS. Divide by 100 to get dollars',
@@ -500,6 +543,10 @@ function askAiRenderState() {
     if (!setup || !chat) return;
 
     if (modelSel) modelSel.value = askAiModel();
+
+    // Keep the context box populated so the user can review/amend what Claude sees.
+    const ctxTa = document.getElementById('askAiContext');
+    if (ctxTa && document.activeElement !== ctxTa) ctxTa.value = askAiStoredContext();
 
     if (askAiIsConfigured()) {
         chat.style.display = '';

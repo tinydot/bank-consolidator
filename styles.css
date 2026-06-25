@@ -261,6 +261,18 @@ input, select {
     font-size: 14px;
 }
 
+#askAiContext {
+    width: 100%;
+    min-height: 140px;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+    box-sizing: border-box;
+}
+
 ::placeholder {
     color: #6c7a89;
     opacity: 1;

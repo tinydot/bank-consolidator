@@ -163,6 +163,20 @@ category & subcategory refs). Consequences when writing code:
   loads a DB from bytes (import `.db`, Drive restore) must call `setupSchema()`
   so an older file gets migrated and enforcement enabled.
 
+### Balance snapshots are append-only, one per account per day
+
+`bank_balances` is a history table: each "Update Balance" / "Record month-end"
+(`js/planner.js`) appends a dated snapshot, and `js/overview.js` charts
+net-worth-over-time by carrying each account's last-known balance forward.
+`setupBalanceSnapshotIndex` (run from `setupSchema`, **after**
+`migrateToForeignKeys`, which would otherwise drop the index) enforces
+`UNIQUE(account_id, as_of_date)`, so `saveBalance` / `saveBatchBalances` upsert
+`ON CONFLICT(account_id, as_of_date)` — re-recording a date corrects it in
+place instead of stacking duplicates. A one-shot dedupe
+(`migration_balance_snapshot_dedupe`) collapses legacy duplicates first. Edit or
+delete individual snapshots via the per-account history modal (`showBalanceHistory`);
+the per-account ✕ (`deleteBalanceAccount`) still wipes them all.
+
 ### Input safety
 
 Always pass user-supplied strings through `escapeHtml()` (in `js/core.js`)

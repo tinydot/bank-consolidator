@@ -266,6 +266,7 @@ function setupSchema() {
     createTables();
     migrateMoneyToCents();
     migrateToForeignKeys();
+    setupBalanceSnapshotIndex();
     db.run('PRAGMA foreign_keys = ON');
 }
 
@@ -501,6 +502,21 @@ function createTables() {
     // Purge the retired manual variable-spend setting (the emergency-fund
     // baseline now comes from the Budget tab). Idempotent — a no-op once gone.
     try { db.run(`DELETE FROM planner_settings WHERE key = 'variable_spend'`); } catch(e) {}
+}
+
+// Enforce one balance snapshot per account per day, so re-recording a date
+// corrects it in place (see saveBalance upsert) instead of stacking duplicates.
+// Runs after migrateToForeignKeys, which rebuilds bank_balances and would
+// otherwise drop the index. One-shot dedupe of legacy duplicates first.
+function setupBalanceSnapshotIndex() {
+    const bbDedupe = db.exec(`SELECT value FROM settings WHERE key = 'migration_balance_snapshot_dedupe'`);
+    const bbDedupeDone = bbDedupe.length && bbDedupe[0].values.length && bbDedupe[0].values[0][0] === 'done';
+    if (!bbDedupeDone) {
+        db.run(`DELETE FROM bank_balances
+                WHERE id NOT IN (SELECT MAX(id) FROM bank_balances GROUP BY account_id, as_of_date)`);
+        db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('migration_balance_snapshot_dedupe', 'done')`);
+    }
+    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_bank_balances_acct_date ON bank_balances(account_id, as_of_date)`);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

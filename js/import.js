@@ -321,6 +321,7 @@ function renderPreviewTable(latestStoredDate, parseErrors) {
     previewTransactions.forEach(tx => { tx.checked = !tx.isDuplicate && !!tx.parsedDate; });
 
     if (total === 0) {
+        document.getElementById('dropZone').style.display = '';
         renderImportError('No rows found in the selected file(s).');
         return;
     }
@@ -330,6 +331,10 @@ function renderPreviewTable(latestStoredDate, parseErrors) {
     const accountSelect = document.getElementById('accountSelect');
     const accountName = accountSelect.options[accountSelect.selectedIndex]?.text || 'account';
     const target = `${profile ? profile.name : ''} — ${accountName}`.trim();
+
+    if (newCount === 0) {
+        document.getElementById('dropZone').style.display = '';
+    }
 
     const skipNote = duplicateCount > 0 ? `<span class="skip-count">${duplicateCount} already imported (skipped)</span>` : '';
     const errNote = parseErrors > 0 ? `<span class="skip-count" style="color:#e74c3c;">${parseErrors} unparseable date${parseErrors !== 1 ? 's' : ''} (skipped)</span>` : '';

@@ -107,9 +107,10 @@ single Playwright smoke test would catch most of the high-severity items above
 in CI. Constraint: keep the runtime no-build (CDN deps + plain script tags).
 
 ### 12. CDN deps unpinned and unhashed
-`sql.js`, PapaParse and Chart.js are loaded by `<script src>` without `integrity`
+`sql.js` and Chart.js are loaded by `<script src>` without `integrity`
 attributes or pinned major.minor versions. Supply-chain and reproducibility
-risk.
+risk. (PapaParse was replaced by an in-house `parseCSV` in `js/import.js`,
+so it no longer needs a CDN entry.)
 
 ## Explicitly out of scope (per CLAUDE.md)
 

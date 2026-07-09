@@ -592,19 +592,37 @@ function convertToRule(description, categoryId, subcategoryId) {
     document.getElementById('newRuleName').focus();
 }
 
-async function saveTransactionCategory(transactionId) {
-    const categoryId = document.getElementById('editCategorySelect').value || null;
-    const subcategoryId = document.getElementById('editSubcategorySelect').value || null;
+function saveTransactionCategory(transactionId) {
+    const categorySelect = document.getElementById('editCategorySelect');
+    const subcategorySelect = document.getElementById('editSubcategorySelect');
+    const categoryId = categorySelect.value || null;
+    const subcategoryId = subcategorySelect.value || null;
+    const categoryName = categorySelect.selectedOptions[0]?.textContent || '';
+    const subcategoryName = subcategorySelect.selectedOptions[0]?.textContent || '';
 
     db.run('UPDATE transactions SET category_id = ?, subcategory_id = ?, manual_category = 1 WHERE id = ?',
         [categoryId, subcategoryId, transactionId]);
-
     markDirty();
-    await loadTransactions(currentPage);
-    refreshFilters();
-    await updateAnalytics();
+
+    // Give instant feedback — close the modal and patch the row in place —
+    // before running the heavier filter/analytics reconciliation below. The
+    // patch is provisional: the deferred reload still runs to correctly drop
+    // the row if it no longer matches an active category/subcategory filter.
     closeEditCategoryModal();
+    patchTransactionRowCategory(transactionId, categoryId, subcategoryId, categoryName, subcategoryName);
     showMessage('success', 'Category updated (manual override set)');
+
+    // Reconcile pagination/filters/analytics in the background so the click
+    // itself doesn't wait on the full re-query + chart re-render.
+    setTimeout(async () => {
+        try {
+            await loadTransactions(currentPage);
+            refreshFilters();
+            await updateAnalytics();
+        } catch (e) {
+            console.error('Background refresh after category edit failed:', e);
+        }
+    }, 0);
 }
 
 function showBulkEditCategory() {

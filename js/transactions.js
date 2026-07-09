@@ -395,6 +395,9 @@ function displayTransactions(result, totalCount = 0, page = 0) {
 
         const isSelected = selectedTransactionIds.has(id);
         const tr = document.createElement('tr');
+        tr.dataset.txId = id;
+        tr.dataset.categoryId = categoryId ?? '';
+        tr.dataset.subcategoryId = subcategoryId ?? '';
         if (ignored) tr.style.opacity = '0.5';
         if (isSelected) tr.style.background = '#fff8d6';
 
@@ -416,7 +419,11 @@ function displayTransactions(result, totalCount = 0, page = 0) {
             <td data-cat style="cursor:pointer;text-decoration:underline;" title="Click to edit">${categoryDisplay}</td>
             <td><button data-toggle style="padding:5px 10px;font-size:12px;">${ignored ? 'Unignore' : 'Ignore'}</button></td>
         `;
-        tr.querySelector('[data-cat]').addEventListener('click', () => showEditCategory(id, categoryId, subcategoryId));
+        tr.querySelector('[data-cat]').addEventListener('click', () => {
+            const liveCategoryId = tr.dataset.categoryId ? Number(tr.dataset.categoryId) : null;
+            const liveSubcategoryId = tr.dataset.subcategoryId ? Number(tr.dataset.subcategoryId) : null;
+            showEditCategory(id, liveCategoryId, liveSubcategoryId);
+        });
         tr.querySelector('[data-desc]').addEventListener('click', () => showEditNote(id, description, note));
         tr.querySelector('[data-toggle]').addEventListener('click', () => toggleIgnore(id, ignored ? 0 : 1));
         tr.querySelector('[data-select-row]').addEventListener('change', e => {
@@ -458,6 +465,28 @@ function displayTransactions(result, totalCount = 0, page = 0) {
     document.getElementById('bulkClearSelectionBtn').addEventListener('click', clearTransactionSelection);
 
     updateBulkBar(pageIds);
+}
+
+// Optimistically reflect a category edit in the already-rendered row so the
+// UI updates instantly, ahead of the full loadTransactions() re-query that
+// still follows in the background. Returns false if the row isn't on the
+// current page (e.g. a different page or filter), a no-op in that case.
+function patchTransactionRowCategory(transactionId, categoryId, subcategoryId, categoryName, subcategoryName) {
+    const tr = document.querySelector(`#transactionsContainer tr[data-tx-id="${transactionId}"]`);
+    if (!tr) return false;
+
+    const cell = tr.querySelector('[data-cat]');
+    if (!cell) return false;
+
+    cell.innerHTML = !categoryId
+        ? '<span style="color:#6c7a89;">Uncategorized</span>'
+        : (subcategoryId && subcategoryName
+            ? `${escapeHtml(categoryName)} › ${escapeHtml(subcategoryName)}`
+            : escapeHtml(categoryName));
+
+    tr.dataset.categoryId = categoryId ?? '';
+    tr.dataset.subcategoryId = subcategoryId ?? '';
+    return true;
 }
 
 function updateBulkBar(pageIds) {

@@ -2,6 +2,57 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ─────────────────────────────────────────────────────────────────────────
+// §4.0. Minimal CSV Parser (RFC 4180 subset — replaces PapaParse)
+// ─────────────────────────────────────────────────────────────────────────
+
+// Parses `text` into rows, honoring quoted fields (with embedded commas,
+// newlines, and "" escaped quotes) and both CRLF/LF line endings.
+// With `header: true`, each row becomes an object keyed by the first row's
+// values (matching the shape bank-profile lookups expect); otherwise rows
+// stay as arrays. `skipEmptyLines` drops blank lines (no header, one empty
+// field), mirroring the two PapaParse options this app actually used.
+function parseCSV(text, { header = true, skipEmptyLines = true } = {}) {
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // strip UTF-8 BOM
+
+    const rows = [];
+    let row = [], field = '', inQuotes = false;
+
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (inQuotes) {
+            if (ch === '"') {
+                if (text[i + 1] === '"') { field += '"'; i++; }
+                else inQuotes = false;
+            } else {
+                field += ch;
+            }
+            continue;
+        }
+        if (ch === '"') { inQuotes = true; }
+        else if (ch === ',') { row.push(field); field = ''; }
+        else if (ch === '\r') { /* skip; \n below closes the row */ }
+        else if (ch === '\n') { row.push(field); field = ''; rows.push(row); row = []; }
+        else { field += ch; }
+    }
+    if (field !== '' || row.length > 0) { row.push(field); rows.push(row); }
+
+    const dataRows = skipEmptyLines
+        ? rows.filter(r => !(r.length === 1 && r[0] === ''))
+        : rows;
+
+    if (!header) return { data: dataRows };
+    if (dataRows.length === 0) return { data: [] };
+
+    const headers = dataRows[0];
+    const data = dataRows.slice(1).map(r => {
+        const obj = {};
+        headers.forEach((h, idx) => { obj[h] = r[idx] !== undefined ? r[idx] : ''; });
+        return obj;
+    });
+    return { data };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // §4.1. File Upload & Selection
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -190,7 +241,7 @@ async function updateImportPreview(syncFormat) {
             processedText = lines.slice(profile.skipRows).join('\n');
         }
 
-        const result = Papa.parse(processedText, {
+        const result = parseCSV(processedText, {
             header: profile.hasHeader !== false,
             skipEmptyLines: true
         });

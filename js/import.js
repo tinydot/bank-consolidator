@@ -533,7 +533,11 @@ function showEditCategory(transactionId, currentCategoryId, currentSubcategoryId
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 
     // Attach description via JS to avoid any HTML/quote escaping issues
-    document.getElementById('convertToRuleBtn').addEventListener('click', () => convertToRule(description));
+    document.getElementById('convertToRuleBtn').addEventListener('click', () => {
+        const categoryId = document.getElementById('editCategorySelect').value || null;
+        const subcategoryId = document.getElementById('editSubcategorySelect').value || null;
+        convertToRule(description, categoryId, subcategoryId);
+    });
 }
 
 function updateEditSubcategoryOptions(transactionId) {
@@ -559,7 +563,7 @@ function closeEditCategoryModal() {
     if (modal) modal.remove();
 }
 
-function convertToRule(description) {
+function convertToRule(description, categoryId, subcategoryId) {
     closeEditCategoryModal();
     switchTab('settings');
     const rulesSection = document.getElementById('rulesSettingsSection');
@@ -570,6 +574,16 @@ function convertToRule(description) {
     showAddRuleForm();
     document.getElementById('newRuleName').value = description;
     document.getElementById('newRuleKeyword').value = description;
+    document.getElementById('newRuleAction').value = 'categorize';
+    toggleCategoryField();
+    if (categoryId) {
+        const catSelect = document.getElementById('newRuleCategory');
+        catSelect.value = String(categoryId);
+        updateRuleSubcategoryOptions();
+        if (subcategoryId) {
+            document.getElementById('newRuleSubcategory').value = String(subcategoryId);
+        }
+    }
     document.getElementById('newRuleName').focus();
 }
 

@@ -81,22 +81,34 @@
                         <button onclick="addManualTransaction()" class="secondary-btn">Add Transaction</button>
                     </details>
 
-                    <!-- Hidden controls retained so existing import pipeline keeps working -->
+                    <!-- Shown while a CSV preview is active so the user can correct
+                         a wrong (or failed) bank/account auto-detection -->
                     <div id="bankProfileSelector" style="display: none;">
-                        <select id="bankProfileSelect" onchange="updateAccountOptions(); updateImportPreview(true)"></select>
-                        <select id="importDateFormat" onchange="updateImportPreview()">
-                            <option value="auto">Auto-detect</option>
-                            <option value="YYYY-MM-DD">YYYY-MM-DD</option>
-                            <option value="DD/MM/YYYY">DD/MM/YYYY</option>
-                            <option value="MM/DD/YYYY">MM/DD/YYYY</option>
-                            <option value="DD-MM-YYYY">DD-MM-YYYY</option>
-                            <option value="MM-DD-YYYY">MM-DD-YYYY</option>
-                            <option value="DD/MM/YY">DD/MM/YY</option>
-                            <option value="MM/DD/YY">MM/DD/YY</option>
-                            <option value="DD-Mon-YY">DD-Mon-YY</option>
-                            <option value="DD-Mon-YYYY">DD-Mon-YYYY</option>
-                        </select>
-                        <select id="accountSelect" onchange="updateImportPreview()"></select>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <div class="form-group" style="flex: 1; min-width: 140px;">
+                                <label>Bank</label>
+                                <select id="bankProfileSelect" onchange="updateAccountOptions(); updateImportPreview(true)"></select>
+                            </div>
+                            <div class="form-group" style="flex: 1; min-width: 140px;">
+                                <label>Account</label>
+                                <select id="accountSelect" onchange="updateImportPreview()"></select>
+                            </div>
+                            <div class="form-group" style="flex: 1; min-width: 140px;">
+                                <label>Date Format</label>
+                                <select id="importDateFormat" onchange="updateImportPreview()">
+                                    <option value="auto">Auto-detect</option>
+                                    <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                                    <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                                    <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                                    <option value="DD-MM-YYYY">DD-MM-YYYY</option>
+                                    <option value="MM-DD-YYYY">MM-DD-YYYY</option>
+                                    <option value="DD/MM/YY">DD/MM/YY</option>
+                                    <option value="MM/DD/YY">MM/DD/YY</option>
+                                    <option value="DD-Mon-YY">DD-Mon-YY</option>
+                                    <option value="DD-Mon-YYYY">DD-Mon-YYYY</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
 
                     <div id="importPreview"></div>

@@ -21,7 +21,7 @@ function normalizeDate(dateStr, format) {
             const day   = parseInt(m[1], 10);
             const month = MONTHS[m[2].toLowerCase()];
             let   year  = parseInt(m[3], 10);
-            if (!month) return null;
+            if (!month || day < 1 || day > 31) return null;
             if (year < 100) year = year < 50 ? 2000 + year : 1900 + year;
             return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
         }
@@ -40,7 +40,10 @@ function normalizeDate(dateStr, format) {
             else if (token === 'YY')   year  = val < 50 ? 2000 + val : 1900 + val;
         });
 
+        // Range-check so a wrong format pick (e.g. MM/DD on DD/MM data) surfaces
+        // as a parse error instead of storing a garbage date like "2025-31-01".
         if (!day || !month || !year) return null;
+        if (month < 1 || month > 12 || day < 1 || day > 31) return null;
         const mm = String(month).padStart(2, '0');
         const dd = String(day).padStart(2, '0');
         return `${year}-${mm}-${dd}`;
@@ -152,7 +155,14 @@ function toCents(val) {
     if (val === null || val === undefined || val === '') return 0;
     const n = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, ''));
     if (!isFinite(n)) return 0;
-    return Math.round(n * 100);
+    return centsRound(n);
+}
+
+// n * 100 in floating point can land just below the true value
+// (1.005 * 100 === 100.49999…), which Math.round would then truncate to the
+// wrong cent. Re-quantize before rounding.
+function centsRound(n) {
+    return Math.round(parseFloat((n * 100).toPrecision(12)));
 }
 
 function fromCents(cents) {
@@ -175,9 +185,49 @@ function fmtMoneyLocale(cents, locale = 'en-US') {
     });
 }
 
-// CSV/form values arrive as decimal strings — convert to integer cents.
+// Parse a CSV money cell into integer cents, or null when the cell cannot be
+// understood as a number — the import preview surfaces nulls as amount errors
+// instead of silently recording $0.00. Tolerates currency symbols/codes
+// ("$1,234.56", "SGD 12.30"), accounting negatives "(123.45)", trailing sign
+// "123.45-", and both 1,234.56 and 1.234,56 separator conventions.
 function parseAmount(val) {
-    return toCents(val);
+    if (val === null || val === undefined) return null;
+    if (typeof val === 'number') return isFinite(val) ? centsRound(val) : null;
+
+    let s = String(val).trim();
+    if (s === '') return null;
+
+    let negative = false;
+    const paren = s.match(/^\((.*)\)$/);
+    if (paren) { negative = true; s = paren[1].trim(); }
+    // A minus sign anywhere before the first digit ("-12.34", "$-12.34") or
+    // trailing ("12.34-") marks a negative.
+    if (/^[^\d]*-/.test(s) || /-\s*$/.test(s)) negative = true;
+
+    // Drop currency symbols, codes, signs, and spaces; keep digits and separators.
+    s = s.replace(/[^\d.,]/g, '');
+    if (!/\d/.test(s)) return null;
+
+    const lastDot = s.lastIndexOf('.');
+    const lastComma = s.lastIndexOf(',');
+    if (lastDot !== -1 && lastComma !== -1) {
+        // Both present: the later one is the decimal separator.
+        if (lastDot > lastComma) s = s.replace(/,/g, '');                  // 1,234.56
+        else s = s.replace(/\./g, '').replace(',', '.');                   // 1.234,56
+    } else if (lastComma !== -1) {
+        const commas = (s.match(/,/g) || []).length;
+        const digitsAfter = s.length - lastComma - 1;
+        // A single comma not followed by a 3-digit group is a decimal comma
+        // (12,34); otherwise commas are thousands separators (1,234 / 1,234,567).
+        if (commas === 1 && digitsAfter !== 3) s = s.replace(',', '.');
+        else s = s.replace(/,/g, '');
+    } else if (lastDot !== -1 && (s.match(/\./g) || []).length > 1) {
+        s = s.replace(/\./g, '');                                          // 1.234.567
+    }
+
+    const n = parseFloat(s);
+    if (!isFinite(n)) return null;
+    return centsRound(n) * (negative ? -1 : 1);
 }
 
 function categorizeTransaction(description) {

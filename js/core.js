@@ -52,7 +52,8 @@ let categoryChart = null;
 let currentPage = 0;
 let selectedTransactionIds = new Set();
 let previewTransactions = []; // parsed rows waiting to be imported
-let _showDuplicates = false;  // toggle state for hidden duplicate rows
+let _showDuplicates = false;  // import preview: also import rows flagged as duplicates
+let _importPreviewToken = 0;  // invalidates stale async runs of updateImportPreview
 let budgetMonth = new Date().toISOString().slice(0, 7); // YYYY-MM, current month
 
 // ─────────────────────────────────────────────────────────────────────────

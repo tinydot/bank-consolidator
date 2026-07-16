@@ -27,7 +27,10 @@ The tabs are built to be used in this order — keep them coherent when changing
 any one of them:
 
 1. **Import** bank CSV exports (`js/import.js`). Each bank gets a profile
-   (columns, date format) and the account is auto-detected from the filename.
+   (columns, date format) and the account is auto-detected by matching each
+   account's configured keyword against the first line of the file
+   (`autoDetectBankAccount`); the bank/account/date-format selectors are shown
+   while a preview is active so a wrong or failed detection can be corrected.
 2. **Categorise** using the Analytics category breakdown to see where the money
    goes, then add/refine **Categories** (`js/categories.js`) and **Rules**
    (`js/rules.js`) so future imports self-categorise. A rule can assign both a
@@ -191,20 +194,36 @@ the `validators` object in `js/core.js`.
 `normalizeDate` (`js/dates.js`) only accepts the explicit format patterns
 configured per bank profile. There is intentionally **no** `new Date(s)`
 fallback — locale-dependent parsing of `01/02/2025` silently corrupted
-foreign-bank imports. If no pattern matches, the raw string is returned so
-the import surfaces the problem.
+foreign-bank imports. If no pattern matches (or a matched pattern produces an
+out-of-range month/day, e.g. an MM/DD profile fed DD/MM data), `null` is
+returned and the import preview counts the row as an unparseable date so the
+problem surfaces. Amounts behave the same way: `parseAmount` (`js/dates.js`)
+returns `null` for cells it cannot understand and the preview reports them as
+unparseable amounts instead of importing $0.00.
 
 ## Intentional design decisions
 
-### No duplicate transaction detection
+### No silent duplicate-transaction deduplication
 Duplicate transactions are **intentionally allowed**. Some banks legitimately
 issue duplicate rows in their CSV exports (e.g. pending → posted transactions
 appearing twice, or split transactions). Silently deduplicating would cause
 data loss. The user manages duplicates via the Ignore button or Import
 History tab.
 
-Do **not** add automatic deduplication (hash-based or otherwise) without
-explicit user request.
+The only dedup that exists is advisory and lives in the **import preview**
+(`updateImportPreview` in `js/import.js`): rows whose exact
+`(date, description, amount)` already exists for the target account are
+flagged "already imported" and unchecked by default, with a per-key count so
+N identical rows in a file are only flagged up to the count already stored.
+A visible checkbox ("tick to import anyway", backed by `_showDuplicates`)
+lets the user import them regardless — nothing is ever dropped without that
+choice being shown. Because matching is exact rather than date-based,
+backfilling older statements works, and manual entries only match when all
+three fields coincide.
+
+Do **not** add automatic deduplication at insert time (hash-based or
+otherwise), and do not remove the user override, without explicit user
+request.
 
 ### No server-side / cross-device data storage (with opt-in exceptions)
 The app is **client-side only** (IndexedDB + localStorage). Server-side

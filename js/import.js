@@ -11,10 +11,13 @@
 // values (matching the shape bank-profile lookups expect); otherwise rows
 // stay as arrays. `skipEmptyLines` drops blank lines (no header, one empty
 // field), mirroring the two PapaParse options this app actually used.
-function parseCSV(text, { header = true, skipEmptyLines = true } = {}) {
+// `skipRows` drops the first N parsed rows (bank-statement preamble) before
+// anything else — parsing first (rather than splitting the raw text on \n)
+// keeps a quoted embedded newline in the preamble from shifting the slice.
+function parseCSV(text, { header = true, skipEmptyLines = true, skipRows = 0 } = {}) {
     if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // strip UTF-8 BOM
 
-    const rows = [];
+    let rows = [];
     let row = [], field = '', inQuotes = false;
 
     for (let i = 0; i < text.length; i++) {
@@ -36,6 +39,8 @@ function parseCSV(text, { header = true, skipEmptyLines = true } = {}) {
     }
     if (field !== '' || row.length > 0) { row.push(field); rows.push(row); }
 
+    if (skipRows > 0) rows = rows.slice(skipRows);
+
     const dataRows = skipEmptyLines
         ? rows.filter(r => !(r.length === 1 && r[0] === ''))
         : rows;
@@ -43,7 +48,9 @@ function parseCSV(text, { header = true, skipEmptyLines = true } = {}) {
     if (!header) return { data: dataRows };
     if (dataRows.length === 0) return { data: [] };
 
-    const headers = dataRows[0];
+    // Trim header names — "Date, Description" style headers (space after the
+    // comma) are common and would otherwise break every column lookup.
+    const headers = dataRows[0].map(h => h.trim());
     const data = dataRows.slice(1).map(r => {
         const obj = {};
         headers.forEach((h, idx) => { obj[h] = r[idx] !== undefined ? r[idx] : ''; });
@@ -98,7 +105,7 @@ function setupEventListeners() {
 }
 
 async function handleFiles(files) {
-    uploadedFiles = Array.from(files).filter(f => f.name.endsWith('.csv'));
+    uploadedFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.csv'));
 
     if (uploadedFiles.length === 0) {
         showMessage('error', 'Please select valid CSV files');
@@ -117,9 +124,13 @@ async function handleFiles(files) {
 
     const detected = await autoDetectBankAccount(uploadedFiles[0]);
     if (!detected) {
-        renderImportError(`Could not auto-detect bank from "${uploadedFiles[0].name}". Configure an account keyword in Settings → Banks & Accounts.`);
-        return;
+        // Not fatal: fall back to manual selection instead of dead-ending.
+        showMessage('error', `Could not auto-detect bank from "${uploadedFiles[0].name}" — check the bank/account selection, or set an account keyword in Settings → Banks & Accounts.`);
     }
+
+    // Show the bank/account/date-format selectors so a wrong auto-detection
+    // (or a failed one) can be corrected before importing.
+    document.getElementById('bankProfileSelector').style.display = '';
 
     updateImportPreview(true);
 }
@@ -171,6 +182,7 @@ function resetFileSelection() {
     _showDuplicates = false;
     document.getElementById('fileInput').value = '';
     document.getElementById('dropZone').style.display = '';
+    document.getElementById('bankProfileSelector').style.display = 'none';
     document.getElementById('importPreview').innerHTML = '';
 }
 
@@ -211,76 +223,76 @@ async function updateImportPreview(syncFormat) {
     const container = document.getElementById('importPreview');
     if (!container || !uploadedFiles.length) return;
 
+    // The onchange handlers can re-enter this async function while a previous
+    // run is awaiting file.text(); the token lets the stale run bail out
+    // instead of appending its rows to the newer run's previewTransactions.
+    const token = ++_importPreviewToken;
+
     const profileIdx = document.getElementById('bankProfileSelect').value;
     const profile = bankProfiles[profileIdx];
+    if (!profile) {
+        renderImportError('No bank profile selected. Create one in Settings → Banks & Accounts.');
+        return;
+    }
     const dateFormat = document.getElementById('importDateFormat').value;
     const accountId = document.getElementById('accountSelect').value;
     const effectiveDateFormat = dateFormat || profile.dateFormat || 'auto';
 
-    // Get latest stored transaction date for this account (for duplicate detection)
-    let latestStoredDate = null;
-    if (accountId) {
-        latestStoredDate = dbHelpers.queryValue(`
-            SELECT MAX(t.date) FROM transactions t
-            JOIN imports i ON t.import_id = i.id
-            WHERE i.account_id = ?
-        `, [accountId]);
-    }
-
     // Parse all rows from all uploaded files
     previewTransactions = [];
     _showDuplicates = false;
-    let parseErrors = 0;
+
+    const hasHeader = profile.hasHeader !== false;
+    const isBlank = (v) => v === undefined || v === null || String(v).trim() === '';
+    // Column lookup for either mode: by (trimmed) header name, or by index.
+    const cell = (row, colSpec) => hasHeader
+        ? row[String(colSpec).trim()]
+        : row[parseInt(colSpec, 10)];
 
     for (let fileIdx = 0; fileIdx < uploadedFiles.length; fileIdx++) {
         const file = uploadedFiles[fileIdx];
         const text = await file.text();
-        let processedText = text;
-        if (profile.skipRows && profile.skipRows > 0) {
-            const lines = text.split('\n');
-            processedText = lines.slice(profile.skipRows).join('\n');
-        }
+        if (token !== _importPreviewToken) return;
 
-        const result = parseCSV(processedText, {
-            header: profile.hasHeader !== false,
-            skipEmptyLines: true
+        const result = parseCSV(text, {
+            header: hasHeader,
+            skipEmptyLines: true,
+            skipRows: profile.skipRows || 0
         });
 
         for (const row of result.data) {
-            let rawDate, description, amount;
+            const rawDate = cell(row, profile.dateColumn) || '';
+            const descSpec = String(profile.descriptionColumn);
+            const description = descSpec.includes(',')
+                ? descSpec.split(',').map(c => cell(row, c)).filter(Boolean).join(' ')
+                : cell(row, descSpec) || '';
 
-            if (profile.hasHeader !== false) {
-                rawDate = row[profile.dateColumn] || '';
-                description = profile.descriptionColumn.includes(',')
-                    ? profile.descriptionColumn.split(',').map(c => row[c.trim()]).filter(Boolean).join(' ')
-                    : row[profile.descriptionColumn] || '';
-                if (profile.creditColumn && profile.debitColumn) {
-                    amount = parseAmount(row[profile.creditColumn]) - parseAmount(row[profile.debitColumn]);
-                } else {
-                    const raw = row[profile.amountColumn];
-                    if (raw === undefined || raw === null || String(raw).trim() === '') continue;
-                    amount = parseAmount(raw);
-                }
+            // Amount: null + amountError=true means the cell(s) existed but
+            // could not be parsed — surfaced in the preview instead of
+            // silently importing $0.00.
+            let amount = null;
+            let amountError = false;
+            if (profile.creditColumn && profile.debitColumn) {
+                const creditRaw = cell(row, profile.creditColumn);
+                const debitRaw = cell(row, profile.debitColumn);
+                // Both blank (balance lines, section headers): not a transaction.
+                if (isBlank(creditRaw) && isBlank(debitRaw)) continue;
+                const credit = isBlank(creditRaw) ? 0 : parseAmount(creditRaw);
+                const debit = isBlank(debitRaw) ? 0 : parseAmount(debitRaw);
+                if (credit === null || debit === null) amountError = true;
+                else amount = credit - debit;
             } else {
-                rawDate = row[parseInt(profile.dateColumn)] || '';
-                description = profile.descriptionColumn.includes(',')
-                    ? profile.descriptionColumn.split(',').map(c => row[parseInt(c.trim())]).filter(Boolean).join(' ')
-                    : row[parseInt(profile.descriptionColumn)] || '';
-                if (profile.creditColumn && profile.debitColumn) {
-                    amount = parseAmount(row[parseInt(profile.creditColumn)]) - parseAmount(row[parseInt(profile.debitColumn)]);
-                } else {
-                    const raw = row[parseInt(profile.amountColumn)];
-                    if (raw === undefined || raw === null || String(raw).trim() === '') continue;
-                    amount = parseAmount(raw);
-                }
+                const raw = cell(row, profile.amountColumn);
+                if (isBlank(raw)) continue;
+                amount = parseAmount(raw);
+                if (amount === null) amountError = true;
             }
 
             if (!rawDate) continue;
 
             const parsedDate = normalizeDate(rawDate, effectiveDateFormat);
-            if (!parsedDate) parseErrors++;
 
-            // isDuplicate and checked are resolved in the multi-stage pass below
+            // isDuplicate and checked are resolved in the dedup pass below
             previewTransactions.push({
                 fileIdx,
                 fileName: file.name,
@@ -288,88 +300,60 @@ async function updateImportPreview(syncFormat) {
                 parsedDate: parsedDate || '',
                 description: description || '',
                 amount,
+                amountError,
                 isDuplicate: false,
                 checked: true
             });
         }
     }
 
-    // ── Multi-stage duplicate detection ──────────────────────────────────────
-    if (accountId && latestStoredDate) {
-        // Stage 1: count how many transactions the DB already has on the boundary
-        // date, and how many the import contains on that same date.
-        const dbCountOnBoundary = dbHelpers.queryValue(`
-            SELECT COUNT(*) FROM transactions t
+    // ── Duplicate detection: exact (date, description, amount) matching ─────
+    // One aggregate pre-fetch of everything stored for this account, then a
+    // per-key counting pass: N identical rows in the file are only flagged
+    // duplicate up to the count already in the DB. Rows the DB doesn't have —
+    // including ones older than the latest stored date (backfilling old
+    // statements) — are never flagged, and manual entries only match when
+    // date, description, AND amount all coincide.
+    if (accountId) {
+        const dbCounts = new Map();
+        dbHelpers.queryAll(`
+            SELECT t.date, t.description, t.amount, COUNT(*)
+            FROM transactions t
             JOIN imports i ON t.import_id = i.id
-            WHERE t.date = ? AND i.account_id = ?
-        `, [latestStoredDate, accountId]) || 0;
+            WHERE i.account_id = ?
+            GROUP BY t.date, t.description, t.amount
+        `, [accountId]).forEach(([date, description, amount, n]) => {
+            dbCounts.set(`${date}\x00${description}\x00${amount}`, n);
+        });
 
-        const importCountOnBoundary = previewTransactions
-            .filter(t => t.parsedDate === latestStoredDate).length;
-
-        // Stage 3 is only needed when the import has MORE transactions on the
-        // boundary date than the DB — meaning at least one of them is genuinely new.
-        const boundaryNeedsExactMatch = dbCountOnBoundary < importCountOnBoundary;
-
-        // Caches for stage 3 so we don't re-query the same key twice.
-        const dbCountCache   = new Map(); // fingerprint → db count
-        const importSeenCount = new Map(); // fingerprint → how many times seen so far
-
+        const importSeenCount = new Map(); // fingerprint → occurrences so far
         for (const tx of previewTransactions) {
-            if (!tx.parsedDate) continue;
-
-            if (tx.parsedDate < latestStoredDate) {
-                // Stage 1 — strictly older than the latest stored date: always a duplicate.
-                tx.isDuplicate = true;
-
-            } else if (tx.parsedDate === latestStoredDate) {
-                if (!boundaryNeedsExactMatch) {
-                    // Stage 2 — DB already has at least as many transactions on this
-                    // date as the import does, so every boundary row is already stored.
-                    tx.isDuplicate = true;
-                } else {
-                    // Stage 3 — exact-match with per-key counting so that N identical
-                    // transactions are only flagged duplicate up to the count already in DB.
-                    const key = `${tx.parsedDate}\x00${tx.description}\x00${tx.amount}`;
-
-                    if (!dbCountCache.has(key)) {
-                        const n = dbHelpers.queryValue(`
-                            SELECT COUNT(*) FROM transactions t
-                            JOIN imports i ON t.import_id = i.id
-                            WHERE t.date = ? AND t.description = ? AND t.amount = ?
-                              AND i.account_id = ?
-                        `, [tx.parsedDate, tx.description, tx.amount, accountId]) || 0;
-                        dbCountCache.set(key, n);
-                    }
-
-                    const seenSoFar = (importSeenCount.get(key) || 0) + 1;
-                    importSeenCount.set(key, seenSoFar);
-
-                    // Duplicate only if the DB already contains this many occurrences.
-                    tx.isDuplicate = seenSoFar <= dbCountCache.get(key);
-                }
-
-            } else {
-                // date > latestStoredDate: definitely new.
-                tx.isDuplicate = false;
-            }
-
-            tx.checked = !tx.isDuplicate;
+            if (!tx.parsedDate || tx.amountError) continue;
+            const key = `${tx.parsedDate}\x00${tx.description}\x00${tx.amount}`;
+            const seenSoFar = (importSeenCount.get(key) || 0) + 1;
+            importSeenCount.set(key, seenSoFar);
+            tx.isDuplicate = seenSoFar <= (dbCounts.get(key) || 0);
         }
     }
     // ─────────────────────────────────────────────────────────────────────────
 
-    renderPreviewTable(latestStoredDate, parseErrors);
+    renderPreviewTable();
 }
 
-function renderPreviewTable(latestStoredDate, parseErrors) {
+function renderPreviewTable() {
     const container = document.getElementById('importPreview');
     const total = previewTransactions.length;
-    const duplicateCount = previewTransactions.filter(t => t.isDuplicate).length;
-    const newCount = total - duplicateCount;
+    const dateErrors = previewTransactions.filter(t => !t.parsedDate).length;
+    const amountErrors = previewTransactions.filter(t => t.parsedDate && t.amountError).length;
+    const duplicateCount = previewTransactions.filter(t => t.parsedDate && !t.amountError && t.isDuplicate).length;
+    const newCount = total - dateErrors - amountErrors - duplicateCount;
+    // What the Import button will actually insert: unparseable rows never
+    // import; duplicates only when the user opts in via the checkbox.
+    const importCount = _showDuplicates ? newCount + duplicateCount : newCount;
 
-    // Drop the unparseable rows so they don't sneak into the import.
-    previewTransactions.forEach(tx => { tx.checked = !tx.isDuplicate && !!tx.parsedDate; });
+    previewTransactions.forEach(tx => {
+        tx.checked = !!tx.parsedDate && !tx.amountError && (_showDuplicates || !tx.isDuplicate);
+    });
 
     if (total === 0) {
         document.getElementById('dropZone').style.display = '';
@@ -383,27 +367,38 @@ function renderPreviewTable(latestStoredDate, parseErrors) {
     const accountName = accountSelect.options[accountSelect.selectedIndex]?.text || 'account';
     const target = `${profile ? profile.name : ''} — ${accountName}`.trim();
 
-    if (newCount === 0) {
+    if (importCount === 0) {
         document.getElementById('dropZone').style.display = '';
     }
 
-    const skipNote = duplicateCount > 0 ? `<span class="skip-count">${duplicateCount} already imported (skipped)</span>` : '';
-    const errNote = parseErrors > 0 ? `<span class="skip-count" style="color:#e74c3c;">${parseErrors} unparseable date${parseErrors !== 1 ? 's' : ''} (skipped)</span>` : '';
+    const dupNote = duplicateCount > 0 ? `
+        <label class="skip-count" style="cursor:pointer;">
+            <input type="checkbox" ${_showDuplicates ? 'checked' : ''} onchange="toggleImportDuplicates(this.checked)">
+            ${duplicateCount} already imported — tick to import anyway
+        </label>` : '';
+    const dateErrNote = dateErrors > 0 ? `<span class="skip-count" style="color:#e74c3c;">${dateErrors} unparseable date${dateErrors !== 1 ? 's' : ''} (skipped)</span>` : '';
+    const amountErrNote = amountErrors > 0 ? `<span class="skip-count" style="color:#e74c3c;">${amountErrors} unparseable amount${amountErrors !== 1 ? 's' : ''} (skipped)</span>` : '';
 
     container.innerHTML = `
         <div class="import-preview-box">
             <div class="import-preview-summary">
                 <span class="new-count">${newCount}</span> new transaction${newCount !== 1 ? 's' : ''}
                 <span style="color:#7f8c8d;">→ ${escapeHtml(target)}</span>
-                ${skipNote}
-                ${errNote}
+                ${dupNote}
+                ${dateErrNote}
+                ${amountErrNote}
             </div>
             <div class="import-preview-actions">
-                <button onclick="processUploadedFiles()"${newCount === 0 ? ' disabled' : ''}>Import ${newCount > 0 ? newCount + ' ' : ''}Transaction${newCount !== 1 ? 's' : ''}</button>
+                <button onclick="processUploadedFiles()"${importCount === 0 ? ' disabled' : ''}>Import ${importCount > 0 ? importCount + ' ' : ''}Transaction${importCount !== 1 ? 's' : ''}</button>
                 <button class="secondary-btn" onclick="cancelUpload()">Cancel</button>
             </div>
         </div>
     `;
+}
+
+function toggleImportDuplicates(checked) {
+    _showDuplicates = checked;
+    renderPreviewTable();
 }
 
 function updateAccountOptions() {
@@ -446,7 +441,7 @@ async function processUploadedFiles() {
         return;
     }
 
-    const selected = previewTransactions.filter(t => t.checked && t.parsedDate);
+    const selected = previewTransactions.filter(t => t.checked && t.parsedDate && !t.amountError);
 
     if (selected.length === 0) {
         showMessage('error', 'No transactions selected. Check at least one row to import.');

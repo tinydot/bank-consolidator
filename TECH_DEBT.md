@@ -41,9 +41,11 @@ by 100 only at the rendering boundary.
 When none of the explicit format patterns matched, `normalizeDate` fell back to
 `new Date(s)`. Browsers interpret `01/02/2025` differently per locale (US: Jan
 2, UK: Feb 1), so an import from a foreign bank could silently produce wrong
-dates. The fallback now returns the raw string unchanged so import surfaces the
-problem instead of corrupting data, and the user can pick an explicit date
-format in the bank profile.
+dates. The fallback now returns `null`, which the import preview counts as an
+unparseable date so the problem surfaces instead of corrupting data, and the
+user can pick an explicit date format in the bank profile. Explicit formats
+also range-check month/day, so a wrong format pick (MM/DD on DD/MM data)
+surfaces the same way instead of storing garbage dates.
 
 ### 4. `JSON.parse` of `localStorage` without `try`/`catch`
 **Status:** Fixed (see commit history).
@@ -106,12 +108,13 @@ so there is no *enforced* layer boundary — but the code is now navigable.
 ### 6. Per-row duplicate-detection query during import preview
 **Status:** Fixed (see commit history).
 
-`updateImportPreview` used to issue one `SELECT COUNT(*)` per preview row.
-It now uses a multi-stage pass: rows strictly older than the account's latest
-stored date are flagged without any query, and only rows *on* the boundary
-date fall through to exact-match counting, with a per-fingerprint cache so
-each `(date, description, amount)` key is queried at most once. Worst case is
-now O(rows on one date), not O(all rows).
+`updateImportPreview` issued one `SELECT COUNT(*)` per preview row against
+`transactions` (`js/import.js`). It now does a single `GROUP BY` pre-fetch of
+`(date, description, amount)` counts for the target account into a `Map`, so
+the whole pass is O(rows + stored keys). The same rework replaced the
+date-boundary heuristic (which blocked backfilling older statements and was
+poisoned by manual entries) with exact per-key count matching plus a visible
+"import anyway" override in the preview.
 
 ### 7. Per-row event listeners in `displayTransactions`
 Click handlers are wired on every row on every filter/page change. Not a leak

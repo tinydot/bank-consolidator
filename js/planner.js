@@ -1509,7 +1509,7 @@ function loadUnscheduledActivities() {
             ORDER BY COALESCE(c.name, 'zzz'), ai.description
         `, [id]);
 
-        const itemsSummary = items.map(i => `${i[0]}: $${fromCents(i[2]).toFixed(0)}`).join(' • ');
+        const itemsSummary = items.map(i => `${escapeHtml(i[0])}: $${fromCents(i[2]).toFixed(0)}`).join(' • ');
 
         return `
             <div style="border:1px solid #dee2e6; border-radius:6px; padding:12px; margin-bottom:8px; background:white;">
@@ -1579,7 +1579,7 @@ function loadScheduledActivities() {
                         ORDER BY COALESCE(c.name, 'zzz'), ai.description
                     `, [id]);
 
-                    const itemsSummary = items.map(i => `${i[0]}: $${fromCents(i[2]).toFixed(0)}`).join(' • ');
+                    const itemsSummary = items.map(i => `${escapeHtml(i[0])}: $${fromCents(i[2]).toFixed(0)}`).join(' • ');
 
                     return `
                         <div style="background:#f8f9fa; border-radius:6px; padding:12px; margin-bottom:8px;">

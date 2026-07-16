@@ -155,7 +155,7 @@ function renderBankProfiles() {
             <h3>${escapeHtml(profile.name)}</h3>
             <div class="form-group">
                 <label>Bank Name</label>
-                <input type="text" value="${profile.name}" onchange="updateProfile(${idx}, 'name', this.value)">
+                <input type="text" value="${escapeHtml(profile.name)}" onchange="updateProfile(${idx}, 'name', this.value)">
             </div>
             <div class="form-group">
                 <label>
@@ -175,7 +175,7 @@ function renderBankProfiles() {
             </div>
             <div class="form-group">
                 <label>Date Column ${hasHeader ? '(Name)' : '(Index)'}</label>
-                <input type="text" value="${profile.dateColumn}" onchange="updateProfile(${idx}, 'dateColumn', this.value)">
+                <input type="text" value="${escapeHtml(profile.dateColumn)}" onchange="updateProfile(${idx}, 'dateColumn', this.value)">
             </div>
             <div class="form-group">
                 <label>Date Format</label>
@@ -194,7 +194,7 @@ function renderBankProfiles() {
             </div>
             <div class="form-group">
                 <label>Description Column(s) ${hasHeader ? '(Names)' : '(Indices)'}</label>
-                <input type="text" value="${profile.descriptionColumn}" onchange="updateProfile(${idx}, 'descriptionColumn', this.value)">
+                <input type="text" value="${escapeHtml(profile.descriptionColumn)}" onchange="updateProfile(${idx}, 'descriptionColumn', this.value)">
                 <p style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
                     For multiple columns, separate with commas (e.g., "Merchant, Category" or "2, 3, 4")
                 </p>
@@ -204,7 +204,7 @@ function renderBankProfiles() {
                 <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
                     <div style="margin-bottom: 15px;">
                         <label>Single Amount Column ${hasHeader ? '(Name)' : '(Index)'}</label>
-                        <input type="text" value="${profile.amountColumn || ''}" onchange="updateProfile(${idx}, 'amountColumn', this.value)" ${hasCreditDebit ? 'disabled' : ''}>
+                        <input type="text" value="${escapeHtml(profile.amountColumn || '')}" onchange="updateProfile(${idx}, 'amountColumn', this.value)" ${hasCreditDebit ? 'disabled' : ''}>
                         <p style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
                             Use this if amounts are in one column (positive for credit, negative for debit)
                         </p>
@@ -212,11 +212,11 @@ function renderBankProfiles() {
                     <div style="text-align: center; margin: 10px 0; color: #95a5a6; font-weight: bold;">OR</div>
                     <div style="margin-bottom: 10px;">
                         <label>Credit Column ${hasHeader ? '(Name)' : '(Index)'}</label>
-                        <input type="text" value="${profile.creditColumn || ''}" onchange="updateProfile(${idx}, 'creditColumn', this.value)">
+                        <input type="text" value="${escapeHtml(profile.creditColumn || '')}" onchange="updateProfile(${idx}, 'creditColumn', this.value)">
                     </div>
                     <div>
                         <label>Debit Column ${hasHeader ? '(Name)' : '(Index)'}</label>
-                        <input type="text" value="${profile.debitColumn || ''}" onchange="updateProfile(${idx}, 'debitColumn', this.value)">
+                        <input type="text" value="${escapeHtml(profile.debitColumn || '')}" onchange="updateProfile(${idx}, 'debitColumn', this.value)">
                     </div>
                     <p style="font-size: 12px; color: #7f8c8d; margin-top: 10px;">
                         Use these if credits and debits are in separate columns

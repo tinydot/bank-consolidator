@@ -54,6 +54,8 @@ Now wrapped in `try`/`catch`; on failure the legacy key is removed and defaults
 are created.
 
 ### 13. XSS via unescaped bank-profile fields in the profile editor
+**Status:** Fixed (see commit history).
+
 Same bug class as #1, missed in the sweep. `renderBankProfiles`
 (`js/bank-profiles.js`) interpolates the user-editable profile fields into
 `value="…"` attributes without `escapeHtml()`:
@@ -68,17 +70,19 @@ These are free text (`updateProfile` saves whatever is typed; the
 path). A value containing `"` breaks out of the attribute; a payload like
 `" onfocus="alert(1)" autofocus x="` executes on the next Settings render.
 Because the values live in the DB, a malicious imported `.db` / Drive restore
-is also a vector. Fix: wrap each interpolation in `escapeHtml()` (the account
-keyword on line ~248 already does this — the profile fields were the gap).
+is also a vector. All six interpolations now go through `escapeHtml()` (the
+account keyword on line ~248 already did — the profile fields were the gap).
 
 ### 14. XSS via unescaped activity item descriptions in the Planner
+**Status:** Fixed (see commit history).
+
 `loadUnscheduledActivities` and `loadScheduledActivities` (`js/planner.js`)
-build `itemsSummary` from raw `activity_items.description` values and
-interpolate it into `innerHTML` without escaping (`items.map(i => \`${i[0]}:
-$…\`)`). Item descriptions are unvalidated free text, so `<img src=x
-onerror=…>` typed into an activity cost item executes whenever the Planner
-section renders. The activity *name* and *notes* on the same cards are
-escaped — only the items summary was missed.
+built `itemsSummary` from raw `activity_items.description` values and
+interpolated it into `innerHTML` without escaping. Item descriptions are
+unvalidated free text, so `<img src=x onerror=…>` typed into an activity cost
+item executed whenever the Planner section rendered. The activity *name* and
+*notes* on the same cards were already escaped — only the items summary was
+missed. Both sites now wrap the description in `escapeHtml()`.
 
 ## Medium
 

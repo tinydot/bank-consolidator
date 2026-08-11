@@ -204,6 +204,13 @@
                     <div id="purchasePreview"></div>
                 </div>
 
+                <div class="subtab-buttons">
+                    <button class="subtab-button active" onclick="switchPurchaseSection('orders')">🧾 Orders</button>
+                    <button class="subtab-button" onclick="switchPurchaseSection('products')">🏷️ Products</button>
+                </div>
+
+                <div id="purchase-section-orders" class="purchase-section active">
+
                 <div id="purchaseSummary"></div>
 
                 <div class="filters">
@@ -237,6 +244,29 @@
 
                 <div style="margin-top: 20px;">
                     <button onclick="clearPurchaseSource()" class="secondary-btn">🗑️ Remove all purchases for this source</button>
+                </div>
+
+                </div><!-- /purchase-section-orders -->
+
+                <div id="purchase-section-products" class="purchase-section">
+                    <div id="productSummary"></div>
+
+                    <div class="filters">
+                        <div class="form-group">
+                            <label>Search product</label>
+                            <input type="text" id="productSearch" placeholder="e.g. merries" oninput="debouncedLoadPurchaseProducts()">
+                        </div>
+                        <div class="form-group" style="align-self: flex-end;">
+                            <label><input type="checkbox" id="productOnlyRepeat" onchange="loadPurchaseProducts()"> Rebought only</label>
+                        </div>
+                        <div class="form-group" style="align-self: flex-end;">
+                            <label><input type="checkbox" id="productOnlyUncurated" onchange="loadPurchaseProducts()"> Not yet curated</label>
+                        </div>
+                    </div>
+
+                    <div id="productActionBar" style="display:none; justify-content:space-between; align-items:center; margin-bottom:10px; padding:10px 15px; background:#e8f4fd; border:1px solid #b3d9f2; border-radius:4px;"></div>
+
+                    <div id="productList"></div>
                 </div>
             </div>
             <!-- /PURCHASES TAB -->

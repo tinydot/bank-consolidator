@@ -119,13 +119,32 @@ Three things that are easy to get wrong:
 - **Cancelled orders are stored but excluded** from every total (see
   `purchaseIsSpend`), because that money never reached the bank.
 - **`product_key` is a seed, not an identity.** Marketplace titles are SEO
-  keyword soup: in the reference export one nappy appears under 7 names and 27
-  variations, while unrelated products share long prefixes. Normalisation
-  aggressive enough to merge the first wrongly merges the second, so
-  `purchaseProductKey` stays conservative and real merging belongs in
-  `product_catalog` as a curation step. Unit-price trends additionally need
+  keyword soup: in the reference export one nappy appears under 28 seed keys,
+  while unrelated products share long prefixes. Normalisation aggressive enough
+  to merge the first wrongly merges the second, so `purchaseProductKey` stays
+  conservative (it yields ~1000 groups from 1217 items) and real merging is a
+  curation step in the Products sub-tab. Unit-price trends additionally need
   `pack_size`/`unit` — a 100-pack and a 40-pack are not comparable — which no
   export supplies.
+
+#### Merges live in `product_aliases`, not in the item rows
+
+`purchase_items.product_key` is **derived**, never authoritative:
+`alias(source_key) ?? source_key`. `source_key` is what the row's own name
+seeds and is never rewritten.
+
+This indirection is load-bearing. Re-importing an order deletes and re-inserts
+its items, so a merge recorded only in `product_key` would be silently
+discarded by the next overlapping export — the exact workflow the idempotent
+import is designed for. The import path therefore resolves every item through
+`product_aliases`, and merging writes there first. It also makes merges
+reversible: `unmergeProduct` drops the aliases and restores `product_key` from
+`source_key`, so a wrong merge is not a one-way door.
+
+When merging, repoint *nested* aliases too (`UPDATE product_aliases SET
+product_key = …`), or keys aliased into an absorbed group get stranded.
+`product_catalog` rows for absorbed groups are dropped, since nothing can
+reach them again.
 
 **No bundler, no modules.** `js/*.js` files are plain classic scripts loaded
 in dependency order from `index.html` (see the `<script src>` block near the

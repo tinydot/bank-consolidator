@@ -154,7 +154,7 @@ function parsePurchaseCsv(text, sourceKey) {
             qty: Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1,
             unit_price: toCents(row[src.unitPricePaid]) || 0,
             unit_price_original: toCentsOrNull(row[src.unitPriceOriginal]),
-            product_key: purchaseProductKey(row[src.itemName], row[src.variation])
+            source_key: purchaseProductKey(row[src.itemName], row[src.variation])
         });
     });
 
@@ -304,12 +304,18 @@ async function processPurchaseImport() {
             }
 
             for (const it of o.items) {
+                // Resolve through the merge table, so re-importing an order
+                // whose items were merged into a product keeps that decision.
+                const productKey = it.source_key
+                    ? (dbHelpers.queryValue('SELECT product_key FROM product_aliases WHERE source_key = ?', [it.source_key]) || it.source_key)
+                    : null;
+
                 dbHelpers.safeRun(`
                     INSERT INTO purchase_items
-                        (order_id, name, variation, qty, unit_price, unit_price_original, allocated_amount, product_key)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        (order_id, name, variation, qty, unit_price, unit_price_original, allocated_amount, product_key, source_key)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `, [orderId, it.name, it.variation, it.qty, it.unit_price,
-                    it.unit_price_original, it.allocated_amount, it.product_key], 'Insert purchase item');
+                    it.unit_price_original, it.allocated_amount, productKey, it.source_key], 'Insert purchase item');
                 itemCount++;
             }
         }
@@ -552,7 +558,398 @@ function onPurchaseFilterChange() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// §16.6. Bulk removal
+// §16.6. Product curation
+// ─────────────────────────────────────────────────────────────────────────
+//
+// The seed product_key is intentionally naive (see purchaseProductKey), so
+// this is where product identity is actually established: group the rows that
+// are the same thing, give the group a name and a pack size, and mark whether
+// it is a consumable. Restock cadence and unit-price trends are meaningless
+// until that is done, and it is only worth doing for the handful of things
+// actually rebought — the long tail of one-off purchases can stay uncurated.
+
+let selectedProductKeys = new Set();
+let purchaseSection = 'orders';
+
+function switchPurchaseSection(section) {
+    purchaseSection = section;
+
+    document.querySelectorAll('#purchases-tab .subtab-button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('#purchases-tab .purchase-section').forEach(s => s.classList.remove('active'));
+
+    const btn = document.querySelector(`[onclick="switchPurchaseSection('${section}')"]`);
+    if (btn) btn.classList.add('active');
+    const sec = document.getElementById(`purchase-section-${section}`);
+    if (sec) sec.classList.add('active');
+
+    if (section === 'orders') loadPurchases();
+    else loadPurchaseProducts();
+}
+
+// One row per distinct product_key, with the stats that make curation
+// decisions obvious: how often bought, over what span, and the unit-price
+// spread (a wide spread usually means the group still mixes pack sizes).
+function purchaseProductRows() {
+    const search = (document.getElementById('productSearch')?.value || '').trim();
+    const onlyRepeat = document.getElementById('productOnlyRepeat')?.checked;
+    const onlyUncurated = document.getElementById('productOnlyUncurated')?.checked;
+
+    let where = ` WHERE pi.product_key IS NOT NULL
+                    AND UPPER(COALESCE(po.status, '')) <> 'CANCELLED'`;
+    const params = [];
+
+    if (search) {
+        where += ' AND (pi.name LIKE ? OR pi.product_key LIKE ? OR pc.display_name LIKE ?)';
+        params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    if (onlyUncurated) where += ' AND pc.product_key IS NULL';
+
+    const having = onlyRepeat ? ' HAVING COUNT(*) >= 2' : '';
+
+    return dbHelpers.queryAll(`
+        SELECT pi.product_key,
+               COALESCE(pc.display_name, MIN(pi.name)),
+               COUNT(*),
+               COUNT(DISTINCT pi.source_key),
+               MIN(po.order_date), MAX(po.order_date),
+               SUM(pi.allocated_amount),
+               MIN(pi.unit_price), MAX(pi.unit_price),
+               SUM(pi.qty),
+               pc.product_key IS NOT NULL,
+               pc.is_consumable, pc.pack_size, pc.unit,
+               c.name, sc.name
+        FROM purchase_items pi
+        JOIN purchase_orders po      ON po.id = pi.order_id
+        LEFT JOIN product_catalog pc ON pc.product_key = pi.product_key
+        LEFT JOIN categories c       ON c.id  = pc.category_id
+        LEFT JOIN subcategories sc   ON sc.id = pc.subcategory_id
+        ${where}
+        GROUP BY pi.product_key
+        ${having}
+        ORDER BY COUNT(*) DESC, SUM(pi.allocated_amount) DESC
+        LIMIT 300
+    `, params);
+}
+
+function loadPurchaseProducts() {
+    const el = document.getElementById('productList');
+    if (!el) return;
+
+    const rows = purchaseProductRows();
+
+    const totalKeys = dbHelpers.queryValue(
+        'SELECT COUNT(DISTINCT product_key) FROM purchase_items WHERE product_key IS NOT NULL') || 0;
+    const curated = dbHelpers.queryValue('SELECT COUNT(*) FROM product_catalog') || 0;
+    const merged = dbHelpers.queryValue('SELECT COUNT(*) FROM product_aliases') || 0;
+
+    const summary = document.getElementById('productSummary');
+    if (summary) {
+        summary.innerHTML = `
+            <p class="purchase-note" style="margin-bottom:12px;">
+                ${totalKeys} distinct product group(s) · ${curated} curated · ${merged} name(s) merged.
+                Tick two or more rows that are the same product and merge them — marketplace titles vary for
+                identical goods. Set a pack size so unit prices become comparable.
+            </p>`;
+    }
+
+    if (!rows.length) {
+        el.innerHTML = `<p class="purchase-empty">No products match these filters.</p>`;
+        renderProductActionBar();
+        return;
+    }
+
+    el.innerHTML = `
+        <table class="purchase-table">
+            <thead>
+                <tr>
+                    <th style="width:28px;"></th>
+                    <th>Product</th>
+                    <th class="num">Bought</th>
+                    <th class="num">Qty</th>
+                    <th>Span</th>
+                    <th class="num">Spent</th>
+                    <th class="num">Unit price</th>
+                    <th>Curated</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>${rows.map(renderProductRow).join('')}</tbody>
+        </table>
+    `;
+    renderProductActionBar();
+}
+
+function renderProductRow(r) {
+    const [key, name, count, sourceCount, minDate, maxDate, spent,
+           minPrice, maxPrice, qty, isCurated, isConsumable, packSize, unit, cat, subcat] = r;
+
+    const checked = selectedProductKeys.has(key) ? 'checked' : '';
+    const priceSpread = minPrice === maxPrice
+        ? `$${fmtMoney(minPrice)}`
+        : `$${fmtMoney(minPrice)}–$${fmtMoney(maxPrice)}`;
+
+    const tags = [];
+    if (isConsumable) tags.push('<span class="product-tag consumable">consumable</span>');
+    if (packSize) tags.push(`<span class="product-tag">${escapeHtml(String(packSize))}${unit ? ' ' + escapeHtml(unit) : ''}/pack</span>`);
+    if (cat) tags.push(`<span class="product-tag">${escapeHtml(cat)}${subcat ? ' › ' + escapeHtml(subcat) : ''}</span>`);
+    if (sourceCount > 1) tags.push(`<span class="product-tag merged">${sourceCount} names merged</span>`);
+
+    return `
+        <tr class="product-row">
+            <td><input type="checkbox" ${checked} onchange="toggleProductSelection(this, ${JSON.stringify(key).replace(/"/g, '&quot;')})"></td>
+            <td>
+                <div class="product-name">${escapeHtml(name)}</div>
+                ${tags.length ? `<div class="product-tags">${tags.join(' ')}</div>` : ''}
+            </td>
+            <td class="num">${count}</td>
+            <td class="num">${qty}</td>
+            <td>${escapeHtml(minDate || '—')} → ${escapeHtml(maxDate || '—')}</td>
+            <td class="num">$${fmtMoney(spent)}</td>
+            <td class="num">${priceSpread}</td>
+            <td>${isCurated ? '✓' : ''}</td>
+            <td>
+                <button class="link-btn" onclick='editProduct(${JSON.stringify(key)})'>edit</button>
+                ${sourceCount > 1 ? `<button class="link-btn" style="margin-left:8px;" onclick='unmergeProduct(${JSON.stringify(key)})'>unmerge</button>` : ''}
+            </td>
+        </tr>
+    `;
+}
+
+function toggleProductSelection(cb, key) {
+    if (cb.checked) selectedProductKeys.add(key);
+    else selectedProductKeys.delete(key);
+    renderProductActionBar();
+}
+
+function renderProductActionBar() {
+    const bar = document.getElementById('productActionBar');
+    if (!bar) return;
+
+    const n = selectedProductKeys.size;
+    if (n < 1) { bar.style.display = 'none'; return; }
+
+    bar.style.display = 'flex';
+    bar.innerHTML = `
+        <div><strong>${n}</strong> selected</div>
+        <div style="display:flex; gap:10px;">
+            <button onclick="mergeSelectedProducts()" ${n < 2 ? 'disabled' : ''}>Merge into one product</button>
+            <button class="secondary-btn" onclick="clearProductSelection()">Clear</button>
+        </div>
+    `;
+}
+
+function clearProductSelection() {
+    selectedProductKeys.clear();
+    loadPurchaseProducts();
+}
+
+// Merge every selected group into the one bought most often, which is almost
+// always the canonical spelling. Recorded in product_aliases (durable across
+// re-import) and applied to the existing rows.
+function mergeSelectedProducts() {
+    const keys = [...selectedProductKeys];
+    if (keys.length < 2) return;
+
+    const placeholders = keys.map(() => '?').join(',');
+    const ranked = dbHelpers.queryAll(`
+        SELECT product_key, COUNT(*) FROM purchase_items
+        WHERE product_key IN (${placeholders})
+        GROUP BY product_key ORDER BY COUNT(*) DESC
+    `, keys);
+    if (!ranked.length) return;
+
+    const canonical = ranked[0][0];
+    const others = keys.filter(k => k !== canonical);
+    const name = dbHelpers.queryValue(`
+        SELECT COALESCE((SELECT display_name FROM product_catalog WHERE product_key = ?), MIN(name))
+        FROM purchase_items WHERE product_key = ?
+    `, [canonical, canonical]);
+
+    if (!confirm(`Merge ${keys.length} product groups into "${name}"?\n\nThis can be undone with "unmerge".`)) return;
+
+    const otherPlaceholders = others.map(() => '?').join(',');
+
+    // Point every seed key currently landing in a merged group at the
+    // canonical key — including keys already aliased into those groups, so a
+    // merge of a merge doesn't strand them.
+    dbHelpers.safeRun(`
+        INSERT OR REPLACE INTO product_aliases (source_key, product_key)
+        SELECT DISTINCT source_key, ? FROM purchase_items
+        WHERE product_key IN (${otherPlaceholders}) AND source_key IS NOT NULL
+    `, [canonical, ...others], 'Record product merge');
+
+    dbHelpers.safeRun(`
+        UPDATE product_aliases SET product_key = ? WHERE product_key IN (${otherPlaceholders})
+    `, [canonical, ...others], 'Repoint nested aliases');
+
+    dbHelpers.safeRun(`
+        UPDATE purchase_items SET product_key = ? WHERE product_key IN (${otherPlaceholders})
+    `, [canonical, ...others], 'Apply product merge');
+
+    // The absorbed groups' own catalog rows are now unreachable.
+    dbHelpers.safeRun(`DELETE FROM product_catalog WHERE product_key IN (${otherPlaceholders})`,
+        others, 'Drop absorbed catalog rows');
+
+    markDirty();
+    selectedProductKeys.clear();
+    loadPurchaseProducts();
+    showMessage('success', `Merged ${keys.length} groups into "${name}"`);
+}
+
+function unmergeProduct(key) {
+    const names = dbHelpers.queryValue(
+        'SELECT COUNT(DISTINCT source_key) FROM purchase_items WHERE product_key = ?', [key]) || 0;
+    if (names < 2) return;
+
+    if (!confirm(`Split this product back into its ${names} original names?`)) return;
+
+    dbHelpers.safeRun('DELETE FROM product_aliases WHERE product_key = ?', [key], 'Remove product merge');
+    dbHelpers.safeRun(
+        'UPDATE purchase_items SET product_key = source_key WHERE product_key = ? AND source_key IS NOT NULL',
+        [key], 'Restore seed product keys');
+    dbHelpers.safeRun('DELETE FROM product_catalog WHERE product_key = ?', [key], 'Drop merged catalog row');
+
+    markDirty();
+    selectedProductKeys.clear();
+    loadPurchaseProducts();
+    showMessage('success', `Split back into ${names} product(s)`);
+}
+
+function editProduct(key) {
+    const row = dbHelpers.queryFirst(`
+        SELECT COALESCE(pc.display_name, (SELECT MIN(name) FROM purchase_items WHERE product_key = ?)),
+               pc.category_id, pc.subcategory_id, pc.is_consumable, pc.pack_size, pc.unit
+        FROM (SELECT ? AS k) x
+        LEFT JOIN product_catalog pc ON pc.product_key = x.k
+    `, [key, key]);
+
+    const [name, catId, subcatId, isConsumable, packSize, unit] = row || [key, null, null, 0, null, null];
+
+    let categoryOptions = '<option value="">-- None --</option>';
+    dbHelpers.queryAll('SELECT id, name FROM categories ORDER BY sort_order, name').forEach(c => {
+        categoryOptions += `<option value="${c[0]}" ${c[0] === catId ? 'selected' : ''}>${escapeHtml(c[1])}</option>`;
+    });
+
+    let subcategoryOptions = '<option value="">-- None --</option>';
+    if (catId) {
+        dbHelpers.queryAll('SELECT id, name FROM subcategories WHERE category_id = ? ORDER BY sort_order, name', [catId])
+            .forEach(s => {
+                subcategoryOptions += `<option value="${s[0]}" ${s[0] === subcatId ? 'selected' : ''}>${escapeHtml(s[1])}</option>`;
+            });
+    }
+
+    const variants = dbHelpers.queryAll(`
+        SELECT DISTINCT name FROM purchase_items WHERE product_key = ? ORDER BY name LIMIT 12
+    `, [key]);
+
+    document.body.insertAdjacentHTML('beforeend', `
+        <div id="editProductModal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+            <div style="background: white; padding: 30px; border-radius: 8px; max-width: 520px; width: 90%; max-height: 85vh; overflow-y: auto;">
+                <h3 style="margin-top: 0;">Edit product</h3>
+                <div class="form-group">
+                    <label>Display name</label>
+                    <input type="text" id="editProductName" value="${escapeHtml(name || '')}">
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="editProductConsumable" ${isConsumable ? 'checked' : ''}>
+                        Consumable — something you restock
+                    </label>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                    <div class="form-group">
+                        <label>Pack size</label>
+                        <input type="number" id="editProductPackSize" step="any" min="0" placeholder="e.g. 50" value="${packSize != null ? escapeHtml(String(packSize)) : ''}">
+                    </div>
+                    <div class="form-group">
+                        <label>Unit</label>
+                        <input type="text" id="editProductUnit" placeholder="e.g. nappies, ml, sheets" value="${escapeHtml(unit || '')}">
+                    </div>
+                </div>
+                <p class="purchase-note" style="margin-top:0;">
+                    Pack size is what makes prices comparable across sizes — without it a 50-pack and a 40-pack look like a price change.
+                </p>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px;">
+                    <div class="form-group">
+                        <label>Category</label>
+                        <select id="editProductCategory" onchange="updateProductSubcategoryOptions()">${categoryOptions}</select>
+                    </div>
+                    <div class="form-group">
+                        <label>Subcategory</label>
+                        <select id="editProductSubcategory">${subcategoryOptions}</select>
+                    </div>
+                </div>
+                <details style="margin-top:8px;">
+                    <summary style="cursor:pointer; font-size:13px; color:#7f8c8d;">${variants.length} name(s) in this group</summary>
+                    <ul class="product-variant-list">
+                        ${variants.map(v => `<li>${escapeHtml(v[0])}</li>`).join('')}
+                    </ul>
+                </details>
+                <div style="display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap;">
+                    <button onclick='saveProduct(${JSON.stringify(key)})'>Save</button>
+                    <button class="secondary-btn" onclick="closeEditProductModal()">Cancel</button>
+                </div>
+            </div>
+        </div>
+    `);
+}
+
+function updateProductSubcategoryOptions() {
+    const categoryId = document.getElementById('editProductCategory').value;
+    const select = document.getElementById('editProductSubcategory');
+    select.innerHTML = '<option value="">-- None --</option>';
+    if (!categoryId) return;
+
+    dbHelpers.queryAll('SELECT id, name FROM subcategories WHERE category_id = ? ORDER BY sort_order, name', [categoryId])
+        .forEach(s => { select.innerHTML += `<option value="${s[0]}">${escapeHtml(s[1])}</option>`; });
+}
+
+function closeEditProductModal() {
+    const modal = document.getElementById('editProductModal');
+    if (modal) modal.remove();
+}
+
+function saveProduct(key) {
+    const name = document.getElementById('editProductName').value.trim();
+    if (!name) { showMessage('error', 'Display name is required'); return; }
+
+    const packRaw = document.getElementById('editProductPackSize').value.trim();
+    const packSize = packRaw === '' ? null : parseFloat(packRaw);
+    if (packSize !== null && (!isFinite(packSize) || packSize <= 0)) {
+        showMessage('error', 'Pack size must be a positive number');
+        return;
+    }
+
+    dbHelpers.safeRun(`
+        INSERT INTO product_catalog (product_key, display_name, category_id, subcategory_id, is_consumable, pack_size, unit)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(product_key) DO UPDATE SET
+            display_name = excluded.display_name,
+            category_id = excluded.category_id,
+            subcategory_id = excluded.subcategory_id,
+            is_consumable = excluded.is_consumable,
+            pack_size = excluded.pack_size,
+            unit = excluded.unit
+    `, [
+        key,
+        name,
+        document.getElementById('editProductCategory').value || null,
+        document.getElementById('editProductSubcategory').value || null,
+        document.getElementById('editProductConsumable').checked ? 1 : 0,
+        packSize,
+        document.getElementById('editProductUnit').value.trim() || null
+    ], 'Save product');
+
+    markDirty();
+    closeEditProductModal();
+    loadPurchaseProducts();
+    showMessage('success', `Saved "${name}"`);
+}
+
+const debouncedLoadPurchaseProducts = debounce(loadPurchaseProducts, CONFIG.DEBOUNCE_MS);
+
+// ─────────────────────────────────────────────────────────────────────────
+// §16.7. Bulk removal
 // ─────────────────────────────────────────────────────────────────────────
 
 // Per-source wipe rather than per-file undo: imports are idempotent and real
@@ -571,9 +968,21 @@ async function clearPurchaseSource() {
 
     dbHelpers.safeRun('DELETE FROM purchase_orders WHERE source = ?', [source], 'Clear purchase source');
     dbHelpers.safeRun('DELETE FROM purchase_imports WHERE source = ?', [source], 'Clear purchase import log');
+
+    // Prune curation left with nothing to describe. Scoped to keys no item
+    // references any more, so another source's products survive.
+    dbHelpers.safeRun(`DELETE FROM product_catalog
+        WHERE product_key NOT IN (SELECT product_key FROM purchase_items WHERE product_key IS NOT NULL)`,
+        [], 'Prune orphaned product catalog');
+    dbHelpers.safeRun(`DELETE FROM product_aliases
+        WHERE source_key NOT IN (SELECT source_key FROM purchase_items WHERE source_key IS NOT NULL)`,
+        [], 'Prune orphaned product aliases');
+
     markDirty();
     purchasePage = 0;
     purchaseExpanded.clear();
+    selectedProductKeys.clear();
     loadPurchases();
+    loadPurchaseProducts();
     showMessage('success', `Removed ${count} ${label} order(s)`);
 }

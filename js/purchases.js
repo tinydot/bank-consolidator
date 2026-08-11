@@ -66,6 +66,49 @@ function toCentsOrNull(val) {
     return toCents(val);
 }
 
+// Product identity from an extraction: brand + item, with pack size
+// deliberately excluded. A 50-pack and a 40-pack of the same nappy must land
+// in one product or there is no price trend to plot — size is an attribute of
+// the purchase, not part of what the product is.
+function extractionProductKey(brand, item) {
+    const slug = (s) => String(s || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const i = slug(item);
+    if (!i) return null;
+    const b = slug(brand);
+    return b ? `${b}|${i}` : i;
+}
+
+// Single resolution order for an item's product_key, used by both the import
+// path and the re-apply pass so they can never disagree:
+//
+//   1. a manual merge (product_aliases) — an explicit human decision wins
+//   2. the title's extraction — brand + item
+//   3. the seed key derived from the raw title
+//
+// Each step is a fallback for the one above being absent, so extraction
+// improves identity without overriding corrections already made by hand.
+function resolveProductKey(sourceKey, title) {
+    if (!sourceKey) return null;
+
+    const alias = dbHelpers.queryValue(
+        'SELECT product_key FROM product_aliases WHERE source_key = ?', [sourceKey]);
+    if (alias) return alias;
+
+    const ext = dbHelpers.queryFirst(
+        'SELECT brand, item FROM title_extractions WHERE title = ?', [title]);
+    if (ext && ext[1]) {
+        const key = extractionProductKey(ext[0], ext[1]);
+        if (key) return key;
+    }
+
+    return sourceKey;
+}
+
 function purchaseProductKey(name, variation) {
     const clean = (s) => String(s || '')
         .toLowerCase()
@@ -304,11 +347,9 @@ async function processPurchaseImport() {
             }
 
             for (const it of o.items) {
-                // Resolve through the merge table, so re-importing an order
-                // whose items were merged into a product keeps that decision.
-                const productKey = it.source_key
-                    ? (dbHelpers.queryValue('SELECT product_key FROM product_aliases WHERE source_key = ?', [it.source_key]) || it.source_key)
-                    : null;
+                // Merge decision → title extraction → seed key, so re-importing
+                // an order preserves both hand-merges and parsed identities.
+                const productKey = resolveProductKey(it.source_key, it.name);
 
                 dbHelpers.safeRun(`
                     INSERT INTO purchase_items
@@ -583,6 +624,7 @@ function switchPurchaseSection(section) {
     if (sec) sec.classList.add('active');
 
     if (section === 'orders') loadPurchases();
+    else if (section === 'titles') { renderExtractStatus(); loadExtractions(); }
     else loadPurchaseProducts();
 }
 

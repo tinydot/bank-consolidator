@@ -936,3 +936,13 @@ tr:hover {
 /* Below this the table scrolls inside its container rather than crushing the
    name column into a two-word-per-line sliver. */
 #productList .purchase-table { min-width: 760px; }
+
+.extract-title {
+    max-width: 320px;
+    font-size: 12px;
+    color: #7f8c8d;
+    overflow-wrap: anywhere;
+}
+
+#extractList .purchase-table { min-width: 860px; }
+#extractList { overflow-x: auto; }

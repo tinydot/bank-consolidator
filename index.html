@@ -206,6 +206,7 @@
 
                 <div class="subtab-buttons">
                     <button class="subtab-button active" onclick="switchPurchaseSection('orders')">🧾 Orders</button>
+                    <button class="subtab-button" onclick="switchPurchaseSection('titles')">🔤 Parsed titles</button>
                     <button class="subtab-button" onclick="switchPurchaseSection('products')">🏷️ Products</button>
                 </div>
 
@@ -247,6 +248,29 @@
                 </div>
 
                 </div><!-- /purchase-section-orders -->
+
+                <div id="purchase-section-titles" class="purchase-section">
+                    <p class="purchase-intro">
+                        Marketplace titles are keyword soup, so the same product arrives under many names.
+                        Parsing each title into brand, item, and pack size is what lets those names collapse into
+                        one product — and what makes unit prices comparable across pack sizes.
+                        Only the product titles are sent; no prices, dates, shops, or bank data.
+                    </p>
+
+                    <div id="extractStatus"></div>
+
+                    <div class="filters">
+                        <div class="form-group">
+                            <label>Search</label>
+                            <input type="text" id="extractSearch" placeholder="e.g. merries" oninput="debouncedLoadExtractions()">
+                        </div>
+                        <div class="form-group" style="align-self: flex-end;">
+                            <label><input type="checkbox" id="extractOnlyNoSize" onchange="loadExtractions()"> No pack size</label>
+                        </div>
+                    </div>
+
+                    <div id="extractList"></div>
+                </div>
 
                 <div id="purchase-section-products" class="purchase-section">
                     <div id="productSummary"></div>
@@ -942,5 +966,6 @@
     <script src="js/purchases.js"></script>
     <script src="js/drive-sync.js"></script>
     <script src="js/ask-ai.js"></script>
+    <script src="js/purchases-ai.js"></script>
 </body>
 </html>

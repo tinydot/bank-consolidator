@@ -127,6 +127,41 @@ Three things that are easy to get wrong:
   `pack_size`/`unit` — a 100-pack and a 40-pack are not comparable — which no
   export supplies.
 
+#### Product identity comes from parsed titles, not from string matching
+
+`js/purchases-ai.js` parses each distinct title into `{brand, item, pack size,
+category}` via the Anthropic API and caches it in `title_extractions`, keyed by
+the title. **That cache is the rule set.** The rejected alternative — having the
+model emit keyword→field rules — yields patterns nobody has read firing across
+every row, where one over-broad rule silently mis-brands dozens of products;
+per-title extraction is inspectable and correctable one row at a time.
+
+Three things this design depends on:
+
+- **Identity is `brand|item`; pack size is deliberately excluded.** A 50-pack
+  and a 40-pack of the same nappy must land in one product or there is no price
+  trend to plot. Size is an attribute of the purchase, not part of what the
+  product is.
+- **Unit arithmetic happens in code, never in the model.** The model reports
+  `{value, unit, multiplier}` against a fixed enum; `normalizeSize` converts to
+  a base unit and resolves the multiplier, so `24x200ml` is stored as 4800 ml.
+- **A null size is a correct answer.** Only ~27% of titles carry a size at all
+  (a phone grip has none), and those cluster in exactly the consumables that
+  need one. Do not treat null as an extraction failure.
+
+`resolveProductKey()` is the single resolution order, shared by the import path
+and the re-apply pass: **manual merge → title extraction → seed key**. Each step
+is a fallback for the one above being absent, so extraction improves identity
+without overriding a correction made by hand.
+
+One consequence is easy to miss: a merge made *before* extraction points its
+members at a **seed** key, so after extraction those members would keep the seed
+key while everything else moved to the extracted key — splitting one product in
+two. `extractApply()` therefore re-points each alias at the extracted identity
+of its own target *before* re-keying items, and prunes catalog rows the re-key
+strands. Hand-edited extractions (`edited = 1`) are never overwritten by a
+re-run.
+
 #### Merges live in `product_aliases`, not in the item rows
 
 `purchase_items.product_key` is **derived**, never authoritative:
@@ -159,7 +194,7 @@ Script load order (fixed; do not reorder without checking call sites):
 ```
 core → database → import → dates → transactions → analytics
      → categories → bank-profiles → rules → budget → planner → overview
-     → purchases → drive-sync → ask-ai
+     → purchases → drive-sync → ask-ai → purchases-ai
 ```
 
 To bundle into a single offline HTML file, inline the 3 CDN libs, `styles.css`,
@@ -320,10 +355,23 @@ storage we operate (Firebase, Supabase, Cloudflare D1, etc.) was considered and
 rejected. Do **not** add authentication, a backend, or automatic cloud sync
 without explicit user request.
 
-There are two opt-in exceptions that send data off-device, both user-initiated
-and both BYO-credential (no backend we run): the Google Drive backup below, and
-the **Ask AI** chat in `js/ask-ai.js` (added at the user's request). Ask AI is
-the only feature that sends transaction *contents* to a third party: when the
+There are three opt-in exceptions that send data off-device, all user-initiated
+and all BYO-credential (no backend we run): the Google Drive backup below, the
+**Ask AI** chat in `js/ask-ai.js`, and **title extraction** in
+`js/purchases-ai.js` (all added at the user's request). The latter two are the
+features that send transaction *contents* to a third party.
+
+**Title extraction** (`js/purchases-ai.js`) sends *only marketplace product
+titles* — never prices, dates, shops, order ids, or anything from the bank
+tables — to `api.anthropic.com`, using the same user-supplied key as Ask AI
+(`askAi_apiKey`; there is deliberately no second credential). It runs only on
+an explicit button press, shows the exact count in the confirm dialog before
+sending, and is never triggered by an import. Results are cached in
+`title_extractions` keyed by the title, so a title is sent at most once and
+re-running costs only what is new. Do **not** make it automatic, and do not
+widen what it sends beyond the title.
+
+Ask AI is the older of the two: when the
 user presses Send, it calls Anthropic's API (`api.anthropic.com`) with the live
 DB schema and gives Claude a single read-only `run_sql` tool, runs the SELECTs
 locally via `dbHelpers`, and feeds rows back until Claude answers. The API key

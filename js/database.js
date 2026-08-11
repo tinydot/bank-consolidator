@@ -606,6 +606,37 @@ function createTables() {
     `);
     db.run(`CREATE INDEX IF NOT EXISTS idx_product_aliases_target ON product_aliases(product_key)`);
 
+    // Cache of what a marketplace title was parsed into: brand, item, and pack
+    // size. One row per distinct title — the extraction is keyed by the title
+    // itself, so a title is never sent for parsing twice and re-running is free.
+    //
+    // This table IS the rule set. The alternative — having a model generate
+    // keyword rules — produces patterns nobody has read firing across every
+    // row, where one over-broad rule silently mis-brands dozens of products.
+    // Per-title extraction is inspectable and correctable one row at a time.
+    //
+    //   size_value/size_unit : normalised to a base unit (g, ml, pcs, sheets)
+    //                 with any multiplier already resolved — "24x200ml" is
+    //                 stored as 4800 ml. The arithmetic is done in code, never
+    //                 by the model. NULL is a valid answer, not a failure:
+    //                 only ~27% of titles carry a size at all, and those
+    //                 cluster in exactly the consumables that need one.
+    //   edited      : 1 once a human has corrected the row, which then wins
+    //                 over any re-extraction.
+    db.run(`
+        CREATE TABLE IF NOT EXISTS title_extractions (
+            title        TEXT PRIMARY KEY,
+            brand        TEXT,
+            item         TEXT NOT NULL,
+            size_value   REAL,
+            size_unit    TEXT,
+            category     TEXT,
+            edited       INTEGER NOT NULL DEFAULT 0,
+            model        TEXT,
+            extracted_at TEXT NOT NULL
+        )
+    `);
+
     // Curated product identity. Only worth filling in for things actually
     // rebought — pack_size/unit is what makes a unit-price trend meaningful
     // (a 100-pack and a 40-pack of the same nappy are not comparable), and

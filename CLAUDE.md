@@ -225,6 +225,27 @@ Do **not** add automatic deduplication at insert time (hash-based or
 otherwise), and do not remove the user override, without explicit user
 request.
 
+The second, equally advisory, place duplicates surface is the **duplicate
+review** in the Transactions tab (`filterDuplicatesOnly` →
+`loadDuplicateTransactions` in `js/transactions.js`). Ticking it re-renders the
+normal transaction table showing only rows that share their `(date, amount)`
+with another row **in the current filter set** — deliberately looser than the
+import preview's `(date, description, amount)` so a pending/posted pair with
+differing descriptions still groups. All the other filters still apply, so
+scoping to one account or a date range narrows what counts as a duplicate.
+Rows are grouped under a `(date, amount)` header and **pagination counts
+groups, not rows** (`CONFIG.DUPLICATE_GROUP_PAGE_SIZE`), so a group is never
+split across pages. Nothing is deleted or auto-ignored: the user presses the
+per-row Ignore, or selects rows ("Select all but first" ticks every row of a
+group except the earliest) and uses the bulk **Ignore Selected** /
+**Unignore Selected** buttons (`setIgnoredForSelection`). With the default
+"Active only" status filter, ignoring rows shrinks the group until it no longer
+has two matching rows and it drops out of the view.
+
+`buildTransactionFilter()` is the single source of the filter-bar WHERE clause;
+both the normal list and the duplicate view use it, so a new filter added there
+applies to grouping and row fetching alike.
+
 ### No server-side / cross-device data storage (with opt-in exceptions)
 The app is **client-side only** (IndexedDB + localStorage). Server-side
 storage we operate (Firebase, Supabase, Cloudflare D1, etc.) was considered and

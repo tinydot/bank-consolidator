@@ -121,8 +121,26 @@ function applyTransactionRules(description, defaultCategory) {
 // Debounced version for search input
 const debouncedLoadTransactions = debounce(loadTransactions, CONFIG.DEBOUNCE_MS);
 
-async function loadTransactions(page = 0) {
-    currentPage = page;
+// Column list + joins shared by the normal transaction list and the
+// duplicate-review view, so both render through displayTransactions().
+const TRANSACTION_SELECT = `
+    SELECT
+        t.id, t.import_id, b.name as bank, a.account_name, t.date, t.description,
+        t.amount, c.name as category_name, sc.name as subcategory_name, t.ignored, t.category_id, t.subcategory_id, t.note
+`;
+const TRANSACTION_FROM = `
+    FROM transactions t
+    JOIN imports i ON t.import_id = i.id
+    JOIN accounts a ON i.account_id = a.id
+    JOIN banks b ON a.bank_id = b.id
+    LEFT JOIN categories c ON t.category_id = c.id
+    LEFT JOIN subcategories sc ON t.subcategory_id = sc.id
+`;
+
+// Builds the WHERE clause (+ params) for the current filter bar. Returned
+// separately from the SELECT so the duplicate view can reuse the exact same
+// filtered set both for grouping and for fetching the rows in each group.
+function buildTransactionFilter() {
     const bank = document.getElementById('filterBank').value;
     const account = document.getElementById('filterAccount').value;
     const categoryId = document.getElementById('filterCategory').value;
@@ -132,65 +150,126 @@ async function loadTransactions(page = 0) {
     const search = document.getElementById('filterSearch').value;
     const showIgnored = document.getElementById('filterShowIgnored')?.value || 'active';
 
-    let query = `
-        SELECT
-            t.id, t.import_id, b.name as bank, a.account_name, t.date, t.description,
-            t.amount, c.name as category_name, sc.name as subcategory_name, t.ignored, t.category_id, t.subcategory_id, t.note
-        FROM transactions t
-        JOIN imports i ON t.import_id = i.id
-        JOIN accounts a ON i.account_id = a.id
-        JOIN banks b ON a.bank_id = b.id
-        LEFT JOIN categories c ON t.category_id = c.id
-        LEFT JOIN subcategories sc ON t.subcategory_id = sc.id
-        WHERE 1=1
-    `;
+    let where = ' WHERE 1=1';
     const params = [];
 
     // Filter by status
     if (showIgnored === 'active') {
-        query += ' AND t.ignored = 0';
+        where += ' AND t.ignored = 0';
     } else if (showIgnored === 'ignored') {
-        query += ' AND t.ignored = 1';
+        where += ' AND t.ignored = 1';
     }
     // 'all' — no filter
 
     if (bank) {
-        query += ' AND b.name = ?';
+        where += ' AND b.name = ?';
         params.push(bank);
     }
     if (account) {
-        query += ' AND a.id = ?';
+        where += ' AND a.id = ?';
         params.push(account);
     }
     if (categoryId) {
-        query += ' AND t.category_id = ?';
+        where += ' AND t.category_id = ?';
         params.push(categoryId);
     }
     if (subcategoryId) {
-        query += ' AND t.subcategory_id = ?';
+        where += ' AND t.subcategory_id = ?';
         params.push(subcategoryId);
     }
     if (dateFrom) {
-        query += ' AND t.date >= ?';
+        where += ' AND t.date >= ?';
         params.push(dateFrom);
     }
     if (dateTo) {
-        query += ' AND t.date <= ?';
+        where += ' AND t.date <= ?';
         params.push(dateTo);
     }
     if (search) {
-        query += ' AND (t.description LIKE ? OR t.note LIKE ?)';
+        where += ' AND (t.description LIKE ? OR t.note LIKE ?)';
         params.push(`%${search}%`, `%${search}%`);
     }
 
-    // Get total count
-    const countQuery = query.replace(/SELECT[\s\S]*?FROM/, 'SELECT COUNT(*) FROM');
-    const totalCount = dbHelpers.queryValue(countQuery, params) || 0;
+    return { where, params };
+}
 
-    query += ` ORDER BY t.date DESC, ABS(t.amount) DESC, t.description ASC LIMIT ${CONFIG.PAGE_SIZE} OFFSET ${page * CONFIG.PAGE_SIZE}`;
+async function loadTransactions(page = 0) {
+    currentPage = page;
+
+    if (document.getElementById('filterDuplicatesOnly')?.checked) {
+        return loadDuplicateTransactions(page);
+    }
+
+    const { where, params } = buildTransactionFilter();
+
+    const totalCount = dbHelpers.queryValue(`SELECT COUNT(*) ${TRANSACTION_FROM}${where}`, params) || 0;
+
+    const query = `${TRANSACTION_SELECT}${TRANSACTION_FROM}${where}
+        ORDER BY t.date DESC, ABS(t.amount) DESC, t.description ASC
+        LIMIT ${CONFIG.PAGE_SIZE} OFFSET ${page * CONFIG.PAGE_SIZE}`;
 
     const result = db.exec(query, params);
     displayTransactions(result, totalCount, page);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// §7.2.1. Duplicate review
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Advisory only — nothing is ever removed automatically (see the
+// "No silent duplicate-transaction deduplication" note in CLAUDE.md). This
+// view just re-uses the transaction table to surface every transaction that
+// shares its (date, amount) with at least one other transaction in the
+// current filter set, grouped so the user can eyeball each cluster and press
+// Ignore on the rows they consider duplicates.
+//
+// Pagination here counts *groups*, not rows, so a cluster is never split
+// across two pages.
+async function loadDuplicateTransactions(page = 0) {
+    const { where, params } = buildTransactionFilter();
+    const groupSize = CONFIG.DUPLICATE_GROUP_PAGE_SIZE;
+
+    const groupQuery = `SELECT t.date, t.amount ${TRANSACTION_FROM}${where}
+        GROUP BY t.date, t.amount HAVING COUNT(*) > 1`;
+
+    const totalGroups = dbHelpers.queryValue(`SELECT COUNT(*) FROM (${groupQuery})`, params) || 0;
+
+    const options = {
+        groupMode: true,
+        pageSize: groupSize,
+        unitLabel: 'duplicate group',
+        emptyMessage: 'No transactions share the same date and amount in this view.'
+    };
+
+    if (totalGroups === 0) {
+        displayTransactions([], 0, 0, options);
+        return;
+    }
+
+    // Ignoring rows shrinks the group list, so the current page can fall off
+    // the end — step back to the last page that still exists.
+    const totalPages = Math.ceil(totalGroups / groupSize);
+    if (page > totalPages - 1) {
+        return loadDuplicateTransactions(totalPages - 1);
+    }
+
+    const groups = dbHelpers.queryAll(
+        `${groupQuery} ORDER BY t.date DESC, t.amount ASC LIMIT ${groupSize} OFFSET ${page * groupSize}`,
+        params
+    );
+
+    // Match on the (date, amount) pair rather than a concatenated key so the
+    // comparison stays typed (amounts are integer cents).
+    const groupWhere = groups.map(() => '(t.date = ? AND t.amount = ?)').join(' OR ');
+    const groupParams = groups.reduce((acc, g) => acc.concat([g[0], g[1]]), []);
+
+    const result = db.exec(
+        `${TRANSACTION_SELECT}${TRANSACTION_FROM}${where} AND (${groupWhere})
+         ORDER BY t.date DESC, t.amount ASC, t.id ASC`,
+        params.concat(groupParams)
+    );
+
+    displayTransactions(result, totalGroups, page, options);
 }
 
 function refreshFilters() {
@@ -311,26 +390,49 @@ function updateSubcategoryFilter() {
     }
 }
 
-function displayTransactions(result, totalCount = 0, page = 0) {
+function displayTransactions(result, totalCount = 0, page = 0, options = {}) {
     const container = document.getElementById('transactionsContainer');
+    const groupMode = !!options.groupMode;
+    const pageSize = options.pageSize || CONFIG.PAGE_SIZE;
+    const unitLabel = options.unitLabel || 'transaction';
 
     if (!result.length || !result[0].values.length) {
-        container.innerHTML = '<div class="loading">No transactions found</div>';
+        container.innerHTML = `<div class="loading">${escapeHtml(options.emptyMessage || 'No transactions found')}</div>`;
         return;
     }
 
     const rows = result[0].values;
-    const totalPages = Math.ceil(totalCount / CONFIG.PAGE_SIZE);
+    const totalPages = Math.ceil(totalCount / pageSize);
     const frag = document.createDocumentFragment();
+
+    // Duplicate review: group the rows by (date, amount) so each cluster is
+    // rendered under one header. Counts are taken from the rows themselves —
+    // the query already returns whole groups, never a partial one.
+    const groupKey = row => `${row[4]}|${row[6]}`;
+    const groupCounts = new Map();
+    if (groupMode) {
+        rows.forEach(row => {
+            const key = groupKey(row);
+            groupCounts.set(key, (groupCounts.get(key) || 0) + 1);
+        });
+
+        const hint = document.createElement('div');
+        hint.style.cssText = 'margin-bottom:15px; padding:10px 15px; background:#fff8e6; border:1px solid #f0d99b; border-radius:4px; font-size:13px; color:#6b5a2a;';
+        hint.innerHTML = `<strong>Duplicate review.</strong> Every transaction below shares its date and amount with at least one other
+            transaction in the current filters. Nothing is removed automatically — press <em>Ignore</em> on the rows you consider duplicates
+            (or tick them and use <em>Ignore Selected</em>). With the status filter on <em>Active only</em>, a group disappears once enough
+            rows are ignored for it to no longer look duplicated.`;
+        frag.appendChild(hint);
+    }
 
     // Pagination bar (rendered both above and below the table)
     const makePaginationBar = (position) => {
-        const start = page * CONFIG.PAGE_SIZE + 1;
-        const end = Math.min((page + 1) * CONFIG.PAGE_SIZE, totalCount);
+        const start = page * pageSize + 1;
+        const end = Math.min((page + 1) * pageSize, totalCount);
         const bar = document.createElement('div');
         const marginRule = position === 'top' ? 'margin-bottom:15px;' : 'margin-top:15px;';
         bar.style.cssText = `display:flex; justify-content:space-between; align-items:center; ${marginRule} padding:10px; background:#f8f9fa; border-radius:4px;`;
-        bar.innerHTML = `<div>Showing ${start}-${end} of ${totalCount} transactions</div>
+        bar.innerHTML = `<div>Showing ${start}-${end} of ${totalCount} ${unitLabel}${totalCount === 1 ? '' : 's'}</div>
             <div style="display:flex; gap:10px;">
                 <button data-prev ${page === 0 ? 'disabled' : ''} style="padding:5px 15px;">← Previous</button>
                 <span style="padding:5px 15px;">Page ${page + 1} of ${totalPages}</span>
@@ -340,7 +442,7 @@ function displayTransactions(result, totalCount = 0, page = 0) {
         bar.querySelector('[data-next]').addEventListener('click', () => loadTransactions(page + 1));
         return bar;
     };
-    if (totalCount > CONFIG.PAGE_SIZE) {
+    if (totalCount > pageSize) {
         frag.appendChild(makePaginationBar('top'));
     }
 
@@ -350,14 +452,18 @@ function displayTransactions(result, totalCount = 0, page = 0) {
     bulkBar.style.cssText = 'display:none; justify-content:space-between; align-items:center; margin-bottom:10px; padding:10px 15px; background:#e8f4fd; border:1px solid #b3d9f2; border-radius:4px;';
     bulkBar.innerHTML = `
         <div><strong id="bulkSelectionCount">0</strong> selected</div>
-        <div style="display:flex; gap:10px;">
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
             <button id="bulkSetCategoryBtn">Set Category…</button>
+            <button id="bulkIgnoreBtn">Ignore Selected</button>
+            <button class="secondary-btn" id="bulkUnignoreBtn">Unignore Selected</button>
             <button class="secondary-btn" id="bulkClearSelectionBtn">Clear Selection</button>
         </div>
     `;
     frag.appendChild(bulkBar);
 
     const pageIds = rows.map(r => r[0]);
+    // key → the <tr> elements of that duplicate group, wired up after the loop
+    const groupTrs = new Map();
 
     const table = document.createElement('table');
     table.innerHTML = `<thead><tr>
@@ -366,6 +472,7 @@ function displayTransactions(result, totalCount = 0, page = 0) {
     </tr></thead>`;
     const tbody = document.createElement('tbody');
 
+    let lastGroupKey = null;
     rows.forEach(row => {
         const id            = row[0];
         const bank          = row[2];
@@ -392,6 +499,29 @@ function displayTransactions(result, totalCount = 0, page = 0) {
             : (subcatName && subcatName !== '-'
                 ? `${escapeHtml(categoryName)} › ${escapeHtml(subcatName)}`
                 : escapeHtml(categoryName));
+
+        // Duplicate review: emit a header row whenever a new (date, amount)
+        // cluster starts.
+        if (groupMode) {
+            const key = groupKey(row);
+            if (key !== lastGroupKey) {
+                lastGroupKey = key;
+                groupTrs.set(key, []);
+                const count = groupCounts.get(key) || 0;
+                const headerTr = document.createElement('tr');
+                headerTr.dataset.groupKey = key;
+                headerTr.innerHTML = `
+                    <td colspan="7" style="background:#eef3f7; border-top:2px solid #c8d6e0; padding:8px 10px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <div><strong>${date}</strong> • <span class="${amountClass}">${amountStr}</span>
+                                <span style="color:#6c7a89;"> — ${count} transactions with the same date &amp; amount</span></div>
+                            <button data-select-extras style="padding:4px 10px; font-size:12px;">Select all but first</button>
+                        </div>
+                    </td>`;
+                tbody.appendChild(headerTr);
+            }
+            groupTrs.get(key).push(id);
+        }
 
         const isSelected = selectedTransactionIds.has(id);
         const tr = document.createElement('tr');
@@ -445,6 +575,15 @@ function displayTransactions(result, totalCount = 0, page = 0) {
     container.innerHTML = '';
     container.appendChild(frag);
 
+    // Reflects a selection change on an already-rendered row without re-querying
+    const paintRowSelection = (id, selected) => {
+        const tr = tbody.querySelector(`tr[data-tx-id="${id}"]`);
+        if (!tr) return;
+        const cb = tr.querySelector('[data-select-row]');
+        if (cb) cb.checked = selected;
+        tr.style.background = selected ? '#fff8d6' : '';
+    };
+
     // Wire up header select-all + bulk action buttons
     const selectAll = document.getElementById('bulkSelectAll');
     selectAll.addEventListener('change', e => {
@@ -452,17 +591,27 @@ function displayTransactions(result, totalCount = 0, page = 0) {
         pageIds.forEach(id => {
             if (checked) selectedTransactionIds.add(id);
             else selectedTransactionIds.delete(id);
-        });
-        // Re-render row visual state without re-querying the DB
-        tbody.querySelectorAll('tr').forEach((tr, i) => {
-            const cb = tr.querySelector('[data-select-row]');
-            if (cb) cb.checked = checked;
-            tr.style.background = checked ? '#fff8d6' : '';
+            paintRowSelection(id, checked);
         });
         updateBulkBar(pageIds);
     });
     document.getElementById('bulkSetCategoryBtn').addEventListener('click', showBulkEditCategory);
+    document.getElementById('bulkIgnoreBtn').addEventListener('click', () => setIgnoredForSelection(1));
+    document.getElementById('bulkUnignoreBtn').addEventListener('click', () => setIgnoredForSelection(0));
     document.getElementById('bulkClearSelectionBtn').addEventListener('click', clearTransactionSelection);
+
+    // Duplicate review: "Select all but first" ticks every row of the group
+    // except the earliest one, so the originals stay untouched.
+    tbody.querySelectorAll('[data-select-extras]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const key = btn.closest('tr').dataset.groupKey;
+            (groupTrs.get(key) || []).slice(1).forEach(id => {
+                selectedTransactionIds.add(id);
+                paintRowSelection(id, true);
+            });
+            updateBulkBar(pageIds);
+        });
+    });
 
     updateBulkBar(pageIds);
 }
@@ -508,6 +657,28 @@ function updateBulkBar(pageIds) {
 function clearTransactionSelection() {
     selectedTransactionIds.clear();
     loadTransactions(currentPage);
+}
+
+// Bulk counterpart of toggleIgnore — the lever for the duplicate review, where
+// a whole cluster is judged at once. Reversible: re-select and Unignore.
+async function setIgnoredForSelection(ignoredValue) {
+    const ids = Array.from(selectedTransactionIds);
+    if (ids.length === 0) return;
+
+    const placeholders = ids.map(() => '?').join(',');
+    const { success } = dbHelpers.safeRun(
+        `UPDATE transactions SET ignored = ? WHERE id IN (${placeholders})`,
+        [ignoredValue, ...ids],
+        'Bulk ignore update'
+    );
+    if (!success) return;
+
+    selectedTransactionIds.clear();
+    markDirty();
+    await loadTransactions(currentPage);
+    refreshFilters();
+    await updateAnalytics();
+    showMessage('success', `${ids.length} transaction${ids.length === 1 ? '' : 's'} ${ignoredValue ? 'ignored' : 'unignored'}`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────

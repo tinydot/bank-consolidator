@@ -567,6 +567,11 @@ function createTables() {
     //                      from the item name, then corrected by hand in the
     //                      catalog — marketplace titles are keyword soup, so
     //                      the same product appears under many names.
+    //   source_key       : the seed product_key as first derived from this
+    //                      item's own name, never rewritten by a merge. It is
+    //                      what makes merging reversible: unmerging restores
+    //                      product_key from it, so a wrong merge is not a
+    //                      one-way door needing a re-import to undo.
     db.run(`
         CREATE TABLE IF NOT EXISTS purchase_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -578,9 +583,28 @@ function createTables() {
             unit_price_original INTEGER,
             allocated_amount INTEGER NOT NULL DEFAULT 0,
             product_key TEXT,
+            source_key TEXT,
             FOREIGN KEY (order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE
         )
     `);
+
+    // Added after the initial Purchases release; backfill leaves merged rows
+    // alone (their source_key is already set and differs from product_key).
+    try { db.run('ALTER TABLE purchase_items ADD COLUMN source_key TEXT'); } catch(e) {}
+    db.run('UPDATE purchase_items SET source_key = product_key WHERE source_key IS NULL');
+
+    // Durable record of "these seed keys are the same product". Merging must
+    // not live only in purchase_items.product_key: re-importing an order
+    // deletes and re-inserts its items, which would silently discard every
+    // merge made since. The item's product_key is therefore derived —
+    // alias(source_key) or source_key — and this table is the decision.
+    db.run(`
+        CREATE TABLE IF NOT EXISTS product_aliases (
+            source_key  TEXT PRIMARY KEY,
+            product_key TEXT NOT NULL
+        )
+    `);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_product_aliases_target ON product_aliases(product_key)`);
 
     // Curated product identity. Only worth filling in for things actually
     // rebought — pack_size/unit is what makes a unit-price trend meaningful

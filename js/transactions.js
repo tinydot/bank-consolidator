@@ -398,23 +398,20 @@ function displayTransactions(result, totalCount = 0, page = 0) {
         tr.dataset.txId = id;
         tr.dataset.categoryId = categoryId ?? '';
         tr.dataset.subcategoryId = subcategoryId ?? '';
+        // Description and note are kept on the row too: the patch helpers below
+        // rewrite them in place without a re-render, so the click handlers must
+        // read the live value rather than close over the one rendered here.
+        tr.dataset.description = description;
+        tr.dataset.note = note;
+        tr.dataset.ignored = ignored ? '1' : '0';
         if (ignored) tr.style.opacity = '0.5';
         if (isSelected) tr.style.background = '#fff8d6';
-
-        // Description column: show note as primary when present, original as subtitle
-        const descTooltip = note
-            ? `Remark: ${note}\nOriginal: ${description}\n\nClick to edit remark`
-            : `${description}\n\nClick to add a personal remark`;
-        const descCell = note
-            ? `<div style="font-weight:500;">${escapeHtml(note)} <span style="color:#3498db;font-size:11px;">✎</span></div>
-               <div style="color:#95a5a6;font-size:11px;margin-top:2px;">${escapeHtml(description)}</div>`
-            : `<span>${escapeHtml(description)}</span>`;
 
         tr.innerHTML = `
             <td><input type="checkbox" data-select-row ${isSelected ? 'checked' : ''}></td>
             <td>${accountDisplay}</td>
             <td>${date}</td>
-            <td data-desc style="cursor:pointer;" title="${escapeHtml(descTooltip)}">${descCell}</td>
+            <td data-desc style="cursor:pointer;" title="${escapeHtml(transactionDescTooltip(description, note))}">${transactionDescCellHtml(description, note)}</td>
             <td class="${amountClass}">${amountStr}</td>
             <td data-cat style="cursor:pointer;text-decoration:underline;" title="Click to edit">${categoryDisplay}</td>
             <td><button data-toggle style="padding:5px 10px;font-size:12px;">${ignored ? 'Unignore' : 'Ignore'}</button></td>
@@ -424,8 +421,8 @@ function displayTransactions(result, totalCount = 0, page = 0) {
             const liveSubcategoryId = tr.dataset.subcategoryId ? Number(tr.dataset.subcategoryId) : null;
             showEditCategory(id, liveCategoryId, liveSubcategoryId);
         });
-        tr.querySelector('[data-desc]').addEventListener('click', () => showEditNote(id, description, note));
-        tr.querySelector('[data-toggle]').addEventListener('click', () => toggleIgnore(id, ignored ? 0 : 1));
+        tr.querySelector('[data-desc]').addEventListener('click', () => showEditNote(id, tr.dataset.description, tr.dataset.note));
+        tr.querySelector('[data-toggle]').addEventListener('click', () => toggleIgnore(id, tr.dataset.ignored === '1' ? 0 : 1));
         tr.querySelector('[data-select-row]').addEventListener('change', e => {
             if (e.target.checked) selectedTransactionIds.add(id);
             else selectedTransactionIds.delete(id);
@@ -467,6 +464,22 @@ function displayTransactions(result, totalCount = 0, page = 0) {
     updateBulkBar(pageIds);
 }
 
+// Description column: show the note as primary when present, original as
+// subtitle. Shared by the row render above and patchTransactionRowNote below
+// so an edited row is byte-for-byte what a re-render would have produced.
+function transactionDescCellHtml(description, note) {
+    return note
+        ? `<div style="font-weight:500;">${escapeHtml(note)} <span style="color:#3498db;font-size:11px;">✎</span></div>
+               <div style="color:#95a5a6;font-size:11px;margin-top:2px;">${escapeHtml(description)}</div>`
+        : `<span>${escapeHtml(description)}</span>`;
+}
+
+function transactionDescTooltip(description, note) {
+    return note
+        ? `Remark: ${note}\nOriginal: ${description}\n\nClick to edit remark`
+        : `${description}\n\nClick to add a personal remark`;
+}
+
 // Optimistically reflect a category edit in the already-rendered row so the
 // UI updates instantly, ahead of the full loadTransactions() re-query that
 // still follows in the background. Returns false if the row isn't on the
@@ -486,6 +499,35 @@ function patchTransactionRowCategory(transactionId, categoryId, subcategoryId, c
 
     tr.dataset.categoryId = categoryId ?? '';
     tr.dataset.subcategoryId = subcategoryId ?? '';
+    return true;
+}
+
+// Same idea for a personal remark: rewrite the description cell in place.
+function patchTransactionRowNote(transactionId, note) {
+    const tr = document.querySelector(`#transactionsContainer tr[data-tx-id="${transactionId}"]`);
+    if (!tr) return false;
+
+    const cell = tr.querySelector('[data-desc]');
+    if (!cell) return false;
+
+    const description = tr.dataset.description;
+    cell.innerHTML = transactionDescCellHtml(description, note);
+    cell.title = transactionDescTooltip(description, note);
+    tr.dataset.note = note || '';
+    return true;
+}
+
+// …and for the ignore toggle: dim the row and flip the button label.
+function patchTransactionRowIgnored(transactionId, ignored) {
+    const tr = document.querySelector(`#transactionsContainer tr[data-tx-id="${transactionId}"]`);
+    if (!tr) return false;
+
+    const btn = tr.querySelector('[data-toggle]');
+    if (!btn) return false;
+
+    btn.textContent = ignored ? 'Unignore' : 'Ignore';
+    tr.style.opacity = ignored ? '0.5' : '';
+    tr.dataset.ignored = ignored ? '1' : '0';
     return true;
 }
 
@@ -566,7 +608,7 @@ function closeEditNoteModal() {
     if (modal) modal.remove();
 }
 
-async function saveTransactionNote(transactionId, clear = false) {
+function saveTransactionNote(transactionId, clear = false) {
     let note = null;
     if (!clear) {
         const raw = document.getElementById('editNoteInput').value.trim();
@@ -574,9 +616,25 @@ async function saveTransactionNote(transactionId, clear = false) {
     }
     db.run('UPDATE transactions SET note = ? WHERE id = ?', [note, transactionId]);
     markDirty();
+
+    // Close and repaint the row now; reconcile after the browser has painted.
     closeEditNoteModal();
-    await loadTransactions(currentPage);
+    const patched = patchTransactionRowNote(transactionId, note);
     showMessage('success', clear || note === null ? 'Remark cleared' : 'Remark saved');
+
+    // The search filter matches on description OR note, so an edited note can
+    // change which rows match and how many there are. Nothing else in the
+    // transactions query reads the note, so without a search the patched row is
+    // already the final state.
+    const searchActive = !!document.getElementById('filterSearch').value;
+
+    afterNextPaint(async () => {
+        try {
+            if (!patched || searchActive) await loadTransactions(currentPage);
+        } catch (e) {
+            console.error('Background refresh after remark edit failed:', e);
+        }
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

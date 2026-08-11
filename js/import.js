@@ -518,12 +518,27 @@ function updateImportCount(importId, count) {
     `, [count, importId]);
 }
 
-async function toggleIgnore(transactionId, ignoredValue) {
+function toggleIgnore(transactionId, ignoredValue) {
     db.run('UPDATE transactions SET ignored = ? WHERE id = ?', [ignoredValue, transactionId]);
     markDirty();
-    await loadTransactions(currentPage);
-    refreshFilters();
-    await updateAnalytics();
+
+    // Dim the row and flip the button now; reconcile after the paint.
+    const patched = patchTransactionRowIgnored(transactionId, ignoredValue);
+
+    // Under the 'active' and 'ignored' status filters the toggled row leaves
+    // the list, which changes the row set and the total count — that needs the
+    // re-query. 'all' shows both, so the patched row is the final state.
+    const statusFilter = document.getElementById('filterShowIgnored')?.value || 'active';
+
+    afterNextPaint(async () => {
+        try {
+            if (!patched || statusFilter !== 'all') await loadTransactions(currentPage);
+            refreshFilters();
+            await updateAnalyticsIfVisible();
+        } catch (e) {
+            console.error('Background refresh after ignore toggle failed:', e);
+        }
+    });
 }
 
 function showEditCategory(transactionId, currentCategoryId, currentSubcategoryId) {

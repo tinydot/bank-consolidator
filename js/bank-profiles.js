@@ -428,6 +428,10 @@ function switchTab(tab) {
     if (tab === 'transactions') {
         populateManualAccountSelect();
     }
+
+    if (tab === 'purchases') {
+        loadPurchases();
+    }
 }
 
 // Sub-navigation inside the consolidated Planner tab: Overview / Analytics /

@@ -33,6 +33,7 @@
         <div class="tabs">
             <div class="tab-buttons">
                 <button class="tab-button active" onclick="switchTab('transactions')">💳 Transactions</button>
+                <button class="tab-button" onclick="switchTab('purchases')">🛍️ Purchases</button>
                 <button class="tab-button" onclick="switchTab('planner')">📋 Planner</button>
                 <button class="tab-button" onclick="switchTab('ask')">🤖 Ask AI</button>
                 <button class="tab-button" onclick="switchTab('settings')">🔧 Settings</button>
@@ -177,6 +178,68 @@
                 <div id="mappingPreview"></div>
             </div>
             <!-- /TRANSACTIONS TAB -->
+
+            <!-- PURCHASES TAB (itemised marketplace orders — descriptive, not money) -->
+            <div id="purchases-tab" class="tab-content">
+                <div id="import-bar">
+                    <p class="purchase-intro">
+                        Itemises what's inside your marketplace charges — which products, at what unit price, how often.
+                        The spend itself already sits in your bank transactions, so nothing imported here is added to
+                        any total, budget, or the emergency-fund target.
+                    </p>
+
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;">
+                        <div class="form-group" style="flex: 0 0 auto; min-width: 140px;">
+                            <label>Source</label>
+                            <select id="purchaseSource">
+                                <option value="shopee">Shopee</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="flex: 1; min-width: 200px;">
+                            <label>Order export CSV</label>
+                            <input type="file" id="purchaseFileInput" accept=".csv" onchange="handlePurchaseFile(this)">
+                        </div>
+                    </div>
+
+                    <div id="purchasePreview"></div>
+                </div>
+
+                <div id="purchaseSummary"></div>
+
+                <div class="filters">
+                    <div class="form-group">
+                        <label>Search shop or item</label>
+                        <input type="text" id="purchaseSearch" placeholder="e.g. tissue" oninput="debouncedLoadPurchases()">
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select id="purchaseStatus" onchange="onPurchaseFilterChange()">
+                            <option value="">All orders</option>
+                            <option value="spend">Spend only</option>
+                            <option value="cancelled">Cancelled only</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>From Date</label>
+                        <input type="date" id="purchaseDateFrom" onchange="onPurchaseFilterChange()">
+                    </div>
+                    <div class="form-group">
+                        <label>To Date</label>
+                        <input type="date" id="purchaseDateTo" onchange="onPurchaseFilterChange()">
+                    </div>
+                    <div class="form-group" style="align-self: flex-end;">
+                        <button onclick="resetPurchaseFilters()" class="secondary-btn">Reset</button>
+                    </div>
+                </div>
+
+                <div id="purchaseList"></div>
+                <div id="purchasePagination" class="pagination"></div>
+
+                <div style="margin-top: 20px;">
+                    <button onclick="clearPurchaseSource()" class="secondary-btn">🗑️ Remove all purchases for this source</button>
+                </div>
+            </div>
+            <!-- /PURCHASES TAB -->
 
             <!-- PLANNER TAB (consolidates Overview, Analytics, Budget & Planner) -->
             <div id="planner-tab" class="tab-content">
@@ -846,6 +909,7 @@
     <script src="js/budget.js"></script>
     <script src="js/planner.js"></script>
     <script src="js/overview.js"></script>
+    <script src="js/purchases.js"></script>
     <script src="js/drive-sync.js"></script>
     <script src="js/ask-ai.js"></script>
 </body>

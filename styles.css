@@ -731,3 +731,151 @@ tr:hover {
     padding: 6px 10px;
     margin: 0 0 10px;
 }
+
+/* ── Purchases tab (itemised marketplace orders) ─────────────────────── */
+
+.purchase-intro {
+    font-size: 13px;
+    color: #7f8c8d;
+    margin: 0 0 14px;
+    line-height: 1.5;
+}
+
+.purchase-empty {
+    color: #7f8c8d;
+    font-size: 14px;
+    text-align: center;
+    padding: 24px 12px;
+}
+
+.purchase-note {
+    font-size: 12px;
+    color: #7f8c8d;
+    margin: 8px 0 0;
+    line-height: 1.5;
+}
+
+.purchase-preview-card {
+    margin-top: 14px;
+    padding: 16px;
+    background: #f8f9fa;
+    border: 1px solid #e1e8ed;
+    border-radius: 8px;
+}
+
+.purchase-preview-card h4 {
+    margin: 0 0 12px;
+    color: #2c3e50;
+}
+
+.purchase-preview-grid,
+.purchase-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px;
+}
+
+.purchase-preview-grid div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.pp-num, .ps-num {
+    font-size: 18px;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.pp-lbl, .ps-lbl {
+    font-size: 12px;
+    color: #7f8c8d;
+}
+
+.purchase-preview-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.purchase-summary-grid {
+    margin: 16px 0;
+}
+
+.purchase-stat {
+    padding: 12px;
+    background: #f8f9fa;
+    border: 1px solid #e1e8ed;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.purchase-table,
+.purchase-items {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.purchase-table th,
+.purchase-table td,
+.purchase-items th,
+.purchase-items td {
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid #ecf0f1;
+}
+
+.purchase-table th,
+.purchase-items th {
+    background: #f8f9fa;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.purchase-table .num,
+.purchase-items .num {
+    text-align: right;
+}
+
+.purchase-row.cancelled td {
+    opacity: 0.55;
+}
+
+.purchase-status {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: #eafaf1;
+    color: #1e8449;
+    white-space: nowrap;
+}
+
+.purchase-status.cancelled {
+    background: #fdedec;
+    color: #c0392b;
+}
+
+.purchase-badge {
+    margin-left: 6px;
+    font-size: 12px;
+}
+
+.purchase-items-row > td {
+    background: #fbfcfd;
+    padding: 12px 16px;
+}
+
+.link-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    color: #2980b9;
+    font: inherit;
+    cursor: pointer;
+    text-align: left;
+}
+
+.link-btn:hover {
+    text-decoration: underline;
+}

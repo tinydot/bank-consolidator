@@ -229,15 +229,14 @@ The second, equally advisory, place duplicates surface is the **duplicate
 review** in the Transactions tab (`filterDuplicatesOnly` →
 `loadDuplicateTransactions` in `js/transactions.js`). Ticking it re-renders the
 normal transaction table showing only rows that share their
-`(bank, date, amount)` with another row **in the current filter set** —
+`(account, date, amount)` with another row **in the current filter set** —
 deliberately looser than the import preview's `(date, description, amount)` so a
 pending/posted pair with differing descriptions still groups, but scoped to one
-bank because a duplicate is a bank re-exporting its own row (the same date and
-amount at two different banks is a coincidence). Two accounts **at the same
-bank** still group, which is what catches a statement imported under the wrong
-account. All the other filters still apply, so scoping to one account or a date
-range narrows what counts as a duplicate further.
-Rows are grouped under a `(bank, date, amount)` header and **pagination counts
+account because a duplicate is one account's statement re-exporting its own row
+(the same date and amount on two different accounts is a coincidence). All the
+other filters still apply, so a date range narrows what counts as a duplicate
+further.
+Rows are grouped under an `(account, date, amount)` header and **pagination counts
 groups, not rows** (`CONFIG.DUPLICATE_GROUP_PAGE_SIZE`), so a group is never
 split across pages. Nothing is deleted or auto-ignored: the user presses the
 per-row Ignore, or selects rows ("Select all but first" ticks every row of a

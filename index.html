@@ -159,6 +159,13 @@
                                 <option value="all">All transactions</option>
                             </select>
                         </div>
+                        <div class="form-group">
+                            <label>Duplicate review</label>
+                            <label style="display:flex; align-items:center; gap:6px; font-weight:normal; cursor:pointer;" title="Show only transactions that share the same date and the same amount with another transaction">
+                                <input type="checkbox" id="filterDuplicatesOnly" onchange="loadTransactions()">
+                                Same date &amp; amount only
+                            </label>
+                        </div>
                     </div>
 
                     <div class="button-group">

@@ -25,6 +25,7 @@
   §7.  TRANSACTION OPERATIONS
        7.1. CRUD Operations
        7.2. Query & Display
+            7.2.1. Duplicate review
   §8.  ANALYTICS & REPORTING
        8.1. Statistics Calculation
        8.2. Charts (Monthly Trend, Categories)
@@ -62,6 +63,7 @@ let budgetMonth = new Date().toISOString().slice(0, 7); // YYYY-MM, current mont
 
 const CONFIG = {
     PAGE_SIZE: 50,
+    DUPLICATE_GROUP_PAGE_SIZE: 25, // duplicate review paginates by group, not by row
     DEBOUNCE_MS: 300,
     MAX_FILE_SIZE: 50 * 1024 * 1024, // 50MB
     MAX_CATEGORY_NAME_LENGTH: 50,

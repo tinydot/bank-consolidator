@@ -651,24 +651,31 @@ function saveTransactionCategory(transactionId) {
     markDirty();
 
     // Give instant feedback — close the modal and patch the row in place —
-    // before running the heavier filter/analytics reconciliation below. The
-    // patch is provisional: the deferred reload still runs to correctly drop
-    // the row if it no longer matches an active category/subcategory filter.
+    // before running the filter/analytics reconciliation below.
     closeEditCategoryModal();
-    patchTransactionRowCategory(transactionId, categoryId, subcategoryId, categoryName, subcategoryName);
+    const patched = patchTransactionRowCategory(transactionId, categoryId, subcategoryId, categoryName, subcategoryName);
     showMessage('success', 'Category updated (manual override set)');
 
-    // Reconcile pagination/filters/analytics in the background so the click
-    // itself doesn't wait on the full re-query + chart re-render.
-    setTimeout(async () => {
+    // A re-query only changes what's on screen when a category/subcategory
+    // filter is active (the edited row may no longer match). Without one the
+    // patched row is already the final state — the row set, its order and the
+    // total count are all unaffected by a category change.
+    const categoryFilterActive = !!(document.getElementById('filterCategory').value ||
+                                    document.getElementById('filterSubcategory').value);
+
+    // Reconcile filters/analytics in the background so the click itself doesn't
+    // wait on them. rAF-then-timeout, not a bare timeout: a 0 ms task can be
+    // picked up before the browser paints, which would hide the modal close and
+    // the row patch behind the very work they were meant to front-run.
+    afterNextPaint(async () => {
         try {
-            await loadTransactions(currentPage);
+            if (!patched || categoryFilterActive) await loadTransactions(currentPage);
             refreshFilters();
-            await updateAnalytics();
+            await updateAnalyticsIfVisible();
         } catch (e) {
             console.error('Background refresh after category edit failed:', e);
         }
-    }, 0);
+    });
 }
 
 function showBulkEditCategory() {
@@ -750,13 +757,29 @@ async function saveBulkTransactionCategory() {
     }
 
     const count = ids.length;
+    const categoryName = document.getElementById('bulkEditCategorySelect').selectedOptions[0]?.textContent || '';
+    const subcategoryName = document.getElementById('bulkEditSubcategorySelect').selectedOptions[0]?.textContent || '';
     selectedTransactionIds.clear();
     markDirty();
-    await loadTransactions(currentPage);
-    refreshFilters();
-    await updateAnalytics();
+
+    // Same instant-feedback shape as the single-row edit: close the modal and
+    // patch the affected rows now, reconcile after the browser has painted.
     closeBulkEditCategoryModal();
+    ids.forEach(id => patchTransactionRowCategory(id, categoryId, subcategoryId, categoryName, subcategoryName));
     showMessage('success', `Category updated for ${count} transaction${count === 1 ? '' : 's'} (manual override set)`);
+
+    afterNextPaint(async () => {
+        try {
+            // The reload is unconditional here even when every row was patched:
+            // clearing the selection has to redraw the row highlights and the
+            // bulk bar, which the category patch alone does not touch.
+            await loadTransactions(currentPage);
+            refreshFilters();
+            await updateAnalyticsIfVisible();
+        } catch (e) {
+            console.error('Background refresh after bulk category edit failed:', e);
+        }
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

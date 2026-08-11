@@ -65,6 +65,26 @@ async function updateAnalytics() {
 }
 
 
+// Analytics is a sub-section of the Planner tab, so a write made from the
+// Transactions tab re-renders charts nobody is looking at while still blocking
+// the main thread (the category-breakdown render alone walks every expense of
+// the month). Writes should call this instead of updateAnalytics() directly:
+// it renders only when the section is actually on screen. Nothing is lost when
+// it is not — switchPlannerSection('analytics') always calls updateAnalytics()
+// on the way in, so the next visit rebuilds from the current DB state.
+function analyticsSectionVisible() {
+    const section = document.getElementById('planner-section-analytics');
+    if (!section || !section.classList.contains('active')) return false;
+    const tab = document.getElementById('planner-tab');
+    return !!(tab && tab.classList.contains('active'));
+}
+
+async function updateAnalyticsIfVisible() {
+    if (!analyticsSectionVisible()) return;
+    await updateAnalytics();
+}
+
+
 function extractShortLabel(description, ruleKeyword = null) {
     // If matched a rule, use the rule keyword
     if (ruleKeyword) return ruleKeyword.slice(0, 20).toUpperCase();
@@ -251,9 +271,14 @@ function renderCategoryDetailTags() {
         budgetData[row[0]] = row[1];
     });
 
-    // Get all rules for label matching
+    // Get all rules for label matching. Compile each keyword's pattern once up
+    // front — the match below runs per transaction, so building them inside that
+    // loop meant recompiling every rule for every row of the month.
     const rules = dbHelpers.queryAll('SELECT keyword FROM transaction_rules WHERE enabled = 1');
-    const ruleKeywords = new Set(rules.map(r => r[0].toLowerCase()));
+    const rulePatterns = Array.from(new Set(rules.map(r => r[0].toLowerCase()))).map(keyword => ({
+        keyword,
+        pattern: new RegExp(`(^|[^\\w])${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^\\w]|$)`, 'i')
+    }));
 
     // Calculate monthly totals (income, expenses, budget)
     let totalIncome = 0;
@@ -398,9 +423,7 @@ function renderCategoryDetailTags() {
         cat.transactions.forEach(tx => {
             // Check if description matches any rule keyword (word-boundary, same as applyTransactionRules)
             let matchedKeyword = null;
-            for (const keyword of ruleKeywords) {
-                const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const pattern = new RegExp(`(^|[^\\w])${escapedKeyword}([^\\w]|$)`, 'i');
+            for (const { keyword, pattern } of rulePatterns) {
                 if (pattern.test(tx.desc)) {
                     matchedKeyword = keyword;
                     break;

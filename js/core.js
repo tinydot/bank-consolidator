@@ -202,6 +202,15 @@ function debounce(func, wait) {
     };
 }
 
+// Run work only after the browser has painted the current DOM state. A bare
+// setTimeout(fn, 0) is not enough: the 0 ms task can be selected before the
+// next rendering opportunity, so pending DOM updates stay invisible until the
+// deferred (often long) work finishes. requestAnimationFrame fires just before
+// a paint, and the timeout inside it lands on the task after that paint.
+function afterNextPaint(fn) {
+    requestAnimationFrame(() => setTimeout(fn, 0));
+}
+
 function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');

@@ -67,6 +67,9 @@ any one of them:
    always add in full. The Planner table, Financial Health card, Overview, and
    exported report all reconcile to the same netted total.
 
+Alongside that flow sits the **Purchases** tab (`js/purchases.js`), which is
+deliberately *outside* it — see below.
+
 The **Overview** dashboard and the exported Analytics report both read the same
 `budgetMonthlyTotal()` / `emergencyFundTargetTotal()` helpers, so every screen
 agrees on the target. There is **no** separate manually-typed "variable spend"
@@ -88,6 +91,42 @@ When adding a new type, update **every** `commitmentAmountForMonth` call site
 plus the parallel switches in the Planner month-view/day-detail calendars
 (`js/planner.js`) and the exported report (`rpt_planner` in `js/analytics.js`).
 
+### Purchases are descriptive, never monetary
+
+`purchase_orders` / `purchase_items` / `product_catalog` (`js/purchases.js`)
+hold itemised marketplace order exports — currently Shopee, via
+`PURCHASE_SOURCES`, where a second marketplace is a new column mapping rather
+than a new parser. They answer *what was inside* a charge: which products, at
+what unit price, how often rebought.
+
+**They are not transactions and must never be summed as money.** The spend is
+already in `transactions` — it arrived on the card/bank CSV as one charge per
+order — so adding orders to that table would double-count in every
+`SUM(amount)` across analytics, budget, planner, and Overview (24 `FROM
+transactions` sites). `purchase_orders.transaction_id` links an order to the
+bank row that paid for it; the link is the point, not a second copy of the
+amount. If you add a spending figure anywhere, it reads `transactions`.
+
+Three things that are easy to get wrong:
+
+- **Item prices do not sum to what was paid.** They are pre-voucher and
+  pre-shipping; in the reference Shopee export 726 of 1003 orders differ.
+  `purchase_items.allocated_amount` is each item's share of the order total,
+  apportioned by gross value with the rounding drift absorbed by the largest
+  item, so an order's allocations sum *exactly* to `purchase_orders.total`.
+  It is the only item-level figure that reconciles — use it, not `unit_price`,
+  whenever an item needs a dollar value.
+- **Cancelled orders are stored but excluded** from every total (see
+  `purchaseIsSpend`), because that money never reached the bank.
+- **`product_key` is a seed, not an identity.** Marketplace titles are SEO
+  keyword soup: in the reference export one nappy appears under 7 names and 27
+  variations, while unrelated products share long prefixes. Normalisation
+  aggressive enough to merge the first wrongly merges the second, so
+  `purchaseProductKey` stays conservative and real merging belongs in
+  `product_catalog` as a curation step. Unit-price trends additionally need
+  `pack_size`/`unit` — a 100-pack and a 40-pack are not comparable — which no
+  export supplies.
+
 **No bundler, no modules.** `js/*.js` files are plain classic scripts loaded
 in dependency order from `index.html` (see the `<script src>` block near the
 bottom). They share one global scope on purpose — inline `onclick=` handlers
@@ -100,8 +139,8 @@ Script load order (fixed; do not reorder without checking call sites):
 
 ```
 core → database → import → dates → transactions → analytics
-     → categories → bank-profiles → rules → budget → planner → overview → drive-sync
-     → ask-ai
+     → categories → bank-profiles → rules → budget → planner → overview
+     → purchases → drive-sync → ask-ai
 ```
 
 To bundle into a single offline HTML file, inline the 3 CDN libs, `styles.css`,
@@ -224,6 +263,16 @@ three fields coincide.
 Do **not** add automatic deduplication at insert time (hash-based or
 otherwise), and do not remove the user override, without explicit user
 request.
+
+The **one** exception is the itemised-purchase import (`js/purchases.js`),
+which upserts on `UNIQUE(purchase_orders.source, external_id)`. The rule above
+protects bank CSVs, where duplicate rows are legitimate data and no stable row
+id exists; a marketplace export supplies a real order id, and overlapping
+re-exports are the normal workflow, so re-importing must refresh rather than
+restate. It does not touch the `transactions` table. A consequence: file-level
+undo is not offered for purchases (one order is typically carried by several
+exports, so "undo that file" is ill-defined) — removal is per-order or
+per-source via `clearPurchaseSource()`.
 
 The second, equally advisory, place duplicates surface is the **duplicate
 review** in the Transactions tab (`filterDuplicatesOnly` →

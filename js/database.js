@@ -14,6 +14,7 @@ async function init() {
     await loadBudget();
     await loadPlanner();
     loadOverview();
+    loadPurchases();
     populateManualAccountSelect();
     setupEventListeners();
     driveSyncInit();
@@ -488,6 +489,121 @@ function createTables() {
             FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
         )
     `);
+
+    // ─── Itemised marketplace purchases (Shopee, …) ───────────────────────
+    // These are deliberately NOT rows in `transactions`. The money is already
+    // in `transactions` — it arrived on the card/bank CSV as one charge per
+    // order — so inserting orders here as well would double-count spend in
+    // every SUM(amount) across analytics, budget, and the planner. This is a
+    // descriptive itemisation *of* a bank charge: it answers "what was in that
+    // $34.36 Shopee charge", drives restock cadence and unit-price trends, and
+    // never contributes to a money total.
+    //
+    //   external_id : the marketplace's own order id. Stable across repeated
+    //                 CSV exports, which is why UNIQUE(source, external_id)
+    //                 makes re-import idempotent — see the note below.
+    //   total       : integer cents, the amount actually paid for the order
+    //                 (post-voucher), i.e. what the bank charge should equal.
+    //   transaction_id : the reconciled bank row, NULL until matched.
+    //   purchase_import_id : the file that first introduced this order. Its own
+    //                 log rather than the bank `imports` table, because
+    //                 imports.account_id is NOT NULL and FK-enforced — a
+    //                 marketplace export has no bank account, and inventing one
+    //                 would leak into every account dropdown, filter, balance
+    //                 snapshot, and the Overview net-worth roll-up.
+    //
+    // NOTE — this is the one place the app dedupes on insert, contrary to the
+    // "no silent duplicate deduplication" rule in CLAUDE.md. That rule protects
+    // bank CSVs, where duplicate rows are legitimate data (pending → posted,
+    // split charges) and no stable row id exists. Here the marketplace supplies
+    // a real primary key, and overlapping re-exports are the normal workflow,
+    // so re-importing a file must not restate orders. Bank imports are
+    // unaffected.
+    // Log of itemised-purchase CSV imports. Informational: because the import
+    // is idempotent on (source, external_id) and real exports overlap heavily,
+    // "undo this file" is not a coherent operation — an order can be present in
+    // five exports. Orders are therefore removed per-order or per-source, and
+    // deleting a log row just forgets the provenance (ON DELETE SET NULL).
+    db.run(`
+        CREATE TABLE IF NOT EXISTS purchase_imports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL DEFAULT 'shopee',
+            filename TEXT NOT NULL,
+            import_date TEXT NOT NULL,
+            orders_new INTEGER NOT NULL DEFAULT 0,
+            orders_updated INTEGER NOT NULL DEFAULT 0,
+            item_count INTEGER NOT NULL DEFAULT 0
+        )
+    `);
+
+    db.run(`
+        CREATE TABLE IF NOT EXISTS purchase_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL DEFAULT 'shopee',
+            external_id TEXT NOT NULL,
+            order_date TEXT,
+            shop TEXT,
+            status TEXT,
+            total INTEGER NOT NULL DEFAULT 0,
+            url TEXT,
+            transaction_id INTEGER,
+            purchase_import_id INTEGER,
+            UNIQUE(source, external_id),
+            FOREIGN KEY (purchase_import_id) REFERENCES purchase_imports(id) ON DELETE SET NULL,
+            FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE SET NULL
+        )
+    `);
+
+    // One row per line item on an order.
+    //   unit_price       : integer cents actually paid per unit (pre-voucher)
+    //   unit_price_original : integer cents list price, NULL when not exported
+    //   allocated_amount : this item's share of the order's post-voucher total,
+    //                      apportioned by gross value. Item prices do NOT sum
+    //                      to order total (vouchers, coins, shipping, free
+    //                      gifts), so this is the only item figure that
+    //                      reconciles — the allocations of an order sum exactly
+    //                      to purchase_orders.total.
+    //   product_key      : identity used for restock/price analysis. Seeded
+    //                      from the item name, then corrected by hand in the
+    //                      catalog — marketplace titles are keyword soup, so
+    //                      the same product appears under many names.
+    db.run(`
+        CREATE TABLE IF NOT EXISTS purchase_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            variation TEXT,
+            qty INTEGER NOT NULL DEFAULT 1,
+            unit_price INTEGER NOT NULL DEFAULT 0,
+            unit_price_original INTEGER,
+            allocated_amount INTEGER NOT NULL DEFAULT 0,
+            product_key TEXT,
+            FOREIGN KEY (order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE
+        )
+    `);
+
+    // Curated product identity. Only worth filling in for things actually
+    // rebought — pack_size/unit is what makes a unit-price trend meaningful
+    // (a 100-pack and a 40-pack of the same nappy are not comparable), and
+    // is_consumable is what makes a restock interval meaningful.
+    db.run(`
+        CREATE TABLE IF NOT EXISTS product_catalog (
+            product_key TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            category_id INTEGER,
+            subcategory_id INTEGER,
+            is_consumable INTEGER NOT NULL DEFAULT 0,
+            pack_size REAL,
+            unit TEXT,
+            FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+            FOREIGN KEY (subcategory_id) REFERENCES subcategories(id) ON DELETE SET NULL
+        )
+    `);
+
+    db.run(`CREATE INDEX IF NOT EXISTS idx_purchase_orders_date ON purchase_orders(order_date)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_purchase_orders_txn ON purchase_orders(transaction_id)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_purchase_items_order ON purchase_items(order_id)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_purchase_items_key ON purchase_items(product_key)`);
 
     db.run(`CREATE INDEX IF NOT EXISTS idx_activity_items_activity ON activity_items(activity_id)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_planned_activities_month ON planned_activities(scheduled_month)`);

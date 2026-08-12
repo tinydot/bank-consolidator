@@ -445,8 +445,14 @@ function displayTransactions(result, totalCount = 0, page = 0, options = {}) {
                 <span style="padding:5px 15px;">Page ${page + 1} of ${totalPages}</span>
                 <button data-next ${page >= totalPages - 1 ? 'disabled' : ''} style="padding:5px 15px;">Next →</button>
             </div>`;
-        bar.querySelector('[data-prev]').addEventListener('click', () => loadTransactions(page - 1));
-        bar.querySelector('[data-next]').addEventListener('click', () => loadTransactions(page + 1));
+        // Paging from the bottom bar leaves the viewport at the end of the old
+        // page, so put the top of the list back in view after the re-render.
+        const goToPage = async (target) => {
+            await loadTransactions(target);
+            document.getElementById('transactionsContainer')?.scrollIntoView({ block: 'start' });
+        };
+        bar.querySelector('[data-prev]').addEventListener('click', () => goToPage(page - 1));
+        bar.querySelector('[data-next]').addEventListener('click', () => goToPage(page + 1));
         return bar;
     };
     if (totalCount > pageSize) {

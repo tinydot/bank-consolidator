@@ -15,6 +15,17 @@ There is no `package.json`, no linter, no test suite, and no CI. The GitHub
 Actions workflow (`.github/workflows/`) only deploys the static site to GitHub
 Pages on push to `main`.
 
+### Asset versioning
+
+`index.html` references every local asset with a `?v=dev` query
+(`styles.css?v=dev`, `js/*.js?v=dev`), and the deploy workflow rewrites that
+token to the commit SHA before uploading. Without it a browser will happily
+pair a freshly-fetched `index.html` with a **cached, older `js/*.js`** — which
+presents as the deployed app ignoring a change that is definitely in `main`
+(a mismatch between the UI labels in `index.html` and the behaviour in
+`js/` is the tell). Keep the token on any new `<script>`/`<link>` you add.
+Local `file://` use keeps the literal `?v=dev`, which is harmless.
+
 ## Architecture
 
 Single-page vanilla-JS app that consolidates bank CSV exports into a

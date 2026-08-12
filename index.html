@@ -21,7 +21,7 @@
     -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-asm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=dev">
 </head>
 <body>
     <div class="container">
@@ -951,21 +951,25 @@
         </div>
     </div>
 
-    <script src="js/core.js"></script>
-    <script src="js/database.js"></script>
-    <script src="js/import.js"></script>
-    <script src="js/dates.js"></script>
-    <script src="js/transactions.js"></script>
-    <script src="js/analytics.js"></script>
-    <script src="js/categories.js"></script>
-    <script src="js/bank-profiles.js"></script>
-    <script src="js/rules.js"></script>
-    <script src="js/budget.js"></script>
-    <script src="js/planner.js"></script>
-    <script src="js/overview.js"></script>
-    <script src="js/purchases.js"></script>
-    <script src="js/drive-sync.js"></script>
-    <script src="js/ask-ai.js"></script>
-    <script src="js/purchases-ai.js"></script>
+    <!-- ?v= is a cache-busting token, rewritten to the commit SHA by the Pages
+         deploy workflow. Without it the browser keeps serving a stale js/*.js
+         next to a freshly-fetched index.html, which looks like the app ignoring
+         a change that was actually deployed. -->
+    <script src="js/core.js?v=dev"></script>
+    <script src="js/database.js?v=dev"></script>
+    <script src="js/import.js?v=dev"></script>
+    <script src="js/dates.js?v=dev"></script>
+    <script src="js/transactions.js?v=dev"></script>
+    <script src="js/analytics.js?v=dev"></script>
+    <script src="js/categories.js?v=dev"></script>
+    <script src="js/bank-profiles.js?v=dev"></script>
+    <script src="js/rules.js?v=dev"></script>
+    <script src="js/budget.js?v=dev"></script>
+    <script src="js/planner.js?v=dev"></script>
+    <script src="js/overview.js?v=dev"></script>
+    <script src="js/purchases.js?v=dev"></script>
+    <script src="js/drive-sync.js?v=dev"></script>
+    <script src="js/ask-ai.js?v=dev"></script>
+    <script src="js/purchases-ai.js?v=dev"></script>
 </body>
 </html>

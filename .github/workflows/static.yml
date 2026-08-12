@@ -35,6 +35,11 @@ jobs:
         uses: actions/configure-pages@v5
         with:
           enablement: true
+      # index.html ships every local asset with ?v=dev; stamping the commit SHA
+      # gives each deploy fresh URLs, so a browser holding an old js/*.js is
+      # forced to refetch instead of pairing it with the new index.html.
+      - name: Stamp asset version
+        run: sed -i "s/?v=dev/?v=${GITHUB_SHA::12}/g" index.html
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

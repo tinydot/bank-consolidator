@@ -123,10 +123,13 @@ const debouncedLoadTransactions = debounce(loadTransactions, CONFIG.DEBOUNCE_MS)
 
 // Column list + joins shared by the normal transaction list and the
 // duplicate-review view, so both render through displayTransactions().
+// a.id is trailing because it is only read by the duplicate view (which groups
+// by account); everything else indexes these columns positionally.
 const TRANSACTION_SELECT = `
     SELECT
         t.id, t.import_id, b.name as bank, a.account_name, t.date, t.description,
-        t.amount, c.name as category_name, sc.name as subcategory_name, t.ignored, t.category_id, t.subcategory_id, t.note
+        t.amount, c.name as category_name, sc.name as subcategory_name, t.ignored, t.category_id, t.subcategory_id, t.note,
+        a.id as account_id
 `;
 const TRANSACTION_FROM = `
     FROM transactions t
@@ -219,9 +222,11 @@ async function loadTransactions(page = 0) {
 // Advisory only — nothing is ever removed automatically (see the
 // "No silent duplicate-transaction deduplication" note in CLAUDE.md). This
 // view just re-uses the transaction table to surface every transaction that
-// shares its (date, amount) with at least one other transaction in the
-// current filter set, grouped so the user can eyeball each cluster and press
-// Ignore on the rows they consider duplicates.
+// shares its (account, date, amount) with at least one other transaction in
+// the current filter set, grouped so the user can eyeball each cluster and
+// press Ignore on the rows they consider duplicates. Account is part of the
+// key because a duplicate is one account's statement re-exporting its own row
+// — the same date and amount on two different accounts is a coincidence.
 //
 // Pagination here counts *groups*, not rows, so a cluster is never split
 // across two pages.
@@ -229,8 +234,8 @@ async function loadDuplicateTransactions(page = 0) {
     const { where, params } = buildTransactionFilter();
     const groupSize = CONFIG.DUPLICATE_GROUP_PAGE_SIZE;
 
-    const groupQuery = `SELECT t.date, t.amount ${TRANSACTION_FROM}${where}
-        GROUP BY t.date, t.amount HAVING COUNT(*) > 1`;
+    const groupQuery = `SELECT a.id, t.date, t.amount ${TRANSACTION_FROM}${where}
+        GROUP BY a.id, t.date, t.amount HAVING COUNT(*) > 1`;
 
     const totalGroups = dbHelpers.queryValue(`SELECT COUNT(*) FROM (${groupQuery})`, params) || 0;
 
@@ -238,7 +243,7 @@ async function loadDuplicateTransactions(page = 0) {
         groupMode: true,
         pageSize: groupSize,
         unitLabel: 'duplicate group',
-        emptyMessage: 'No transactions share the same date and amount in this view.'
+        emptyMessage: 'No transactions in the same account share the same date and amount in this view.'
     };
 
     if (totalGroups === 0) {
@@ -254,18 +259,20 @@ async function loadDuplicateTransactions(page = 0) {
     }
 
     const groups = dbHelpers.queryAll(
-        `${groupQuery} ORDER BY t.date DESC, t.amount ASC LIMIT ${groupSize} OFFSET ${page * groupSize}`,
+        `${groupQuery} ORDER BY t.date DESC, t.amount ASC, a.id ASC LIMIT ${groupSize} OFFSET ${page * groupSize}`,
         params
     );
 
-    // Match on the (date, amount) pair rather than a concatenated key so the
-    // comparison stays typed (amounts are integer cents).
-    const groupWhere = groups.map(() => '(t.date = ? AND t.amount = ?)').join(' OR ');
-    const groupParams = groups.reduce((acc, g) => acc.concat([g[0], g[1]]), []);
+    // Match on the (account, date, amount) triple rather than a concatenated
+    // key so the comparison stays typed (amounts are integer cents).
+    const groupWhere = groups.map(() => '(a.id = ? AND t.date = ? AND t.amount = ?)').join(' OR ');
+    const groupParams = groups.reduce((acc, g) => acc.concat([g[0], g[1], g[2]]), []);
 
+    // Same ordering as the group query (plus id) so every row of a group lands
+    // contiguously — the renderer starts a new header whenever the key changes.
     const result = db.exec(
         `${TRANSACTION_SELECT}${TRANSACTION_FROM}${where} AND (${groupWhere})
-         ORDER BY t.date DESC, t.amount ASC, t.id ASC`,
+         ORDER BY t.date DESC, t.amount ASC, a.id ASC, t.id ASC`,
         params.concat(groupParams)
     );
 
@@ -405,10 +412,10 @@ function displayTransactions(result, totalCount = 0, page = 0, options = {}) {
     const totalPages = Math.ceil(totalCount / pageSize);
     const frag = document.createDocumentFragment();
 
-    // Duplicate review: group the rows by (date, amount) so each cluster is
-    // rendered under one header. Counts are taken from the rows themselves —
-    // the query already returns whole groups, never a partial one.
-    const groupKey = row => `${row[4]}|${row[6]}`;
+    // Duplicate review: group the rows by (account, date, amount) so each
+    // cluster is rendered under one header. Counts are taken from the rows
+    // themselves — the query already returns whole groups, never a partial one.
+    const groupKey = row => `${row[13]}|${row[4]}|${row[6]}`;
     const groupCounts = new Map();
     if (groupMode) {
         rows.forEach(row => {
@@ -418,7 +425,7 @@ function displayTransactions(result, totalCount = 0, page = 0, options = {}) {
 
         const hint = document.createElement('div');
         hint.style.cssText = 'margin-bottom:15px; padding:10px 15px; background:#fff8e6; border:1px solid #f0d99b; border-radius:4px; font-size:13px; color:#6b5a2a;';
-        hint.innerHTML = `<strong>Duplicate review.</strong> Every transaction below shares its date and amount with at least one other
+        hint.innerHTML = `<strong>Duplicate review.</strong> Every transaction below shares its account, date and amount with at least one other
             transaction in the current filters. Nothing is removed automatically — press <em>Ignore</em> on the rows you consider duplicates
             (or tick them and use <em>Ignore Selected</em>). With the status filter on <em>Active only</em>, a group disappears once enough
             rows are ignored for it to no longer look duplicated.`;
@@ -513,8 +520,8 @@ function displayTransactions(result, totalCount = 0, page = 0, options = {}) {
                 headerTr.innerHTML = `
                     <td colspan="7" style="background:#eef3f7; border-top:2px solid #c8d6e0; padding:8px 10px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
-                            <div><strong>${date}</strong> • <span class="${amountClass}">${amountStr}</span>
-                                <span style="color:#6c7a89;"> — ${count} transactions with the same date &amp; amount</span></div>
+                            <div><strong>${accountDisplay}</strong> • <strong>${date}</strong> • <span class="${amountClass}">${amountStr}</span>
+                                <span style="color:#6c7a89;"> — ${count} transactions in the same account with the same date &amp; amount</span></div>
                             <button data-select-extras style="padding:4px 10px; font-size:12px;">Select all but first</button>
                         </div>
                     </td>`;

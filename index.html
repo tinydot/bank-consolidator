@@ -6,21 +6,25 @@
     <title>Bank Statement Consolidator</title>
     <!--
         TO RUN FULLY OFFLINE (iPhone Safari / file:// ):
-        Keep index.html, styles.css, and the js/ folder together — file://
-        resolves relative paths, so everything loads automatically.
+        Keep index.html, styles.css, and the js/ and vendor/ folders together —
+        file:// resolves relative paths, so everything loads automatically.
 
         The app code is split into js/*.js files. They are plain (non-module)
         scripts and MUST load in the order listed before </body>.
 
+        The two third-party libraries are vendored under vendor/ (same-origin,
+        no CDN) so nothing external can inject code and the app works with no
+        network at all. See vendor/README.md for provenance and how to update.
+
         To bundle back into a single self-contained file:
-        1. Download the 2 CDN libraries below and inline each as <script>…</script>.
+        1. Copy the 2 vendor/ libraries below into <script>…</script> blocks.
         2. Copy styles.css contents into a <style>…</style> in the <head>.
         3. Copy each js/*.js file, in the order listed before </body>, into
            one combined <script>…</script> before </body>.
         4. Open the single file directly in Safari — no server needed.
     -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-asm.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="vendor/sql.js-1.8.0/sql-asm.js"></script>
+    <script src="vendor/chart.js-4.4.0/chart.umd.js"></script>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>

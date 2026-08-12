@@ -188,14 +188,21 @@ site to GitHub Pages on push to `main` — there is still no lint/test CI.
 ESLint + Prettier + a single Playwright smoke test would catch most of the
 high-severity items above (both #13 and #14 are the exact bug class a
 `no-unsanitized` lint rule flags). Constraint: keep the runtime no-build
-(CDN deps + plain script tags).
+(vendored deps + plain script tags).
 
 ### 12. CDN deps pinned but unhashed
-**Status:** Partially fixed. `sql.js` (1.8.0) and Chart.js (4.4.0) are now
-pinned to exact versions in `index.html`, and PapaParse was replaced by the
-in-house `parseCSV`. Remaining: no `integrity` (SRI) attributes, so a
-compromised CDN can still inject code; `crossorigin` + SRI hashes would
-close that.
+**Status:** Fixed. PapaParse was replaced by the in-house `parseCSV`, and
+`sql.js` (1.8.0) and Chart.js (4.4.0) are no longer loaded from a CDN at all —
+they are vendored under `vendor/` and loaded same-origin, so there is no
+external script to hash and a compromised CDN can no longer inject code.
+Provenance (npm tarballs verified against `registry.npmjs.org`'s published
+`dist.integrity`) and per-file SHA-384 digests are recorded in
+`vendor/README.md`, along with the update procedure.
+
+Still outstanding, and not fixable with SRI: `js/drive-sync.js` injects Google
+Identity Services from `https://accounts.google.com/gsi/client`, an
+unversioned endpoint Google rotates. It loads only on an explicit "Connect"
+press and never on `file://`.
 
 ### 18. Category icons rendered unescaped in two headers
 `renderCategoryDetailTags` (`js/analytics.js`, `${cat.icon}`) and

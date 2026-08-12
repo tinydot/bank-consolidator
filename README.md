@@ -54,8 +54,9 @@ The app walks a single monthly loop:
 No build step, no dependencies to install. Three options:
 
 **Open directly.** Double-click `index.html`, or open it in mobile Safari from
-Files. The three CDN libraries (`sql.js`, PapaParse, Chart.js) load on first
-run; everything else is local.
+Files. Everything it needs is in the repo — `sql.js` and Chart.js are vendored
+under `vendor/` rather than pulled from a CDN (see `vendor/README.md`), so no
+network access is required at all.
 
 **Static server (recommended for desktop dev).**
 

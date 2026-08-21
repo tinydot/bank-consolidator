@@ -197,10 +197,20 @@ core → database → import → dates → transactions → analytics
      → purchases → drive-sync → ask-ai → purchases-ai
 ```
 
-To bundle into a single offline HTML file, inline the 3 CDN libs, `styles.css`,
-and each `js/*.js` in the load order above — concatenation reproduces the
-original behaviour byte-for-byte (the split was purely mechanical along the
-section banners in `js/core.js`).
+To bundle into a single offline HTML file, inline the 2 `vendor/` libs,
+`styles.css`, and each `js/*.js` in the load order above — concatenation
+reproduces the original behaviour byte-for-byte (the split was purely
+mechanical along the section banners in `js/core.js`).
+
+**Third-party libraries are vendored, not loaded from a CDN.** `sql.js` and
+Chart.js live under `vendor/<pkg>-<version>/` and are loaded same-origin from
+`index.html`, so no external host can inject code into a page holding the whole
+financial DB, and `file://` works with no network. `vendor/README.md` records
+each file's npm provenance, its verified digest, and the update procedure —
+follow it (verify the npm tarball against the registry's `dist.integrity`
+before extracting) rather than re-pointing a `<script src>` at a CDN. The one
+remaining third-party script is Google Identity Services in `js/drive-sync.js`,
+which is unversioned by design and only loads on an explicit Drive connect.
 
 ### Persistence model
 
@@ -427,4 +437,5 @@ without explicit user request.
 
 See `TECH_DEBT.md` for the live list. Notable open items: per-row duplicate-
 detection query in `updateImportPreview`, inline `onclick=` handlers in
-`index.html` (blocks CSP tightening), unpinned/unhashed CDN deps.
+`index.html` (blocks CSP tightening), and the Google Identity Services script,
+which is the last remaining third-party `<script src>`.

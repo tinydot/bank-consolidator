@@ -237,17 +237,20 @@ function showLoading(message = 'Loading...') {
             justify-content: center;
             z-index: 9999;
         `;
+        // The message is never interpolated into innerHTML — both branches set
+        // it via textContent so a user-supplied string (e.g. an uploaded file
+        // name) cannot inject markup on the first call.
         overlay.innerHTML = `
             <div style="background: white; padding: 30px; border-radius: 8px; text-align: center;">
                 <div style="font-size: 40px; margin-bottom: 15px;">⏳</div>
-                <div id="loadingMessage" style="font-size: 18px; color: #2c3e50;">${message}</div>
+                <div id="loadingMessage" style="font-size: 18px; color: #2c3e50;"></div>
             </div>
         `;
         document.body.appendChild(overlay);
-    } else {
-        document.getElementById('loadingMessage').textContent = message;
-        overlay.style.display = 'flex';
     }
+    const messageEl = overlay.querySelector('#loadingMessage');
+    if (messageEl) messageEl.textContent = message;
+    overlay.style.display = 'flex';
 }
 
 function hideLoading() {
